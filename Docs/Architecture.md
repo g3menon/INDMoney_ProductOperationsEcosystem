@@ -1240,6 +1240,8 @@ DEFAULT_TIMEZONE=Asia/Kolkata
 - `GOOGLE_CLIENT_SECRET` is backend-only
 - refresh tokens are backend-only
 - never expose Google or Supabase elevated secrets to frontend
+- `API_BASE_URL` and `FRONTEND_BASE_URL` are typically different origins (for example, `localhost:8000` and `localhost:3000`), so backend CORS configuration is mandatory to avoid browser SOP/CORS failures
+- if credentials/cookies are used, do not use wildcard CORS origins; allow explicit frontend origins only
 
 ---
 
@@ -1278,6 +1280,8 @@ Use one subfolder per phase (recommended):
 - health route
 - badges route
 - Supabase connection foundation
+- local cross-origin setup (frontend `localhost:3000` to backend `localhost:8000`) with explicit FastAPI CORS allowlist
+- validate preflight (`OPTIONS`) and standard API calls from frontend to backend without SOP/CORS errors
 
 ### Phase 2
 
@@ -1319,6 +1323,8 @@ Use one subfolder per phase (recommended):
 - MCP governed actions
 - scheduler webhook
 - weekly pulse send automation
+- production CORS/domain hardening (`FRONTEND_BASE_URL` and deployed API origin must be explicitly allowlisted)
+- ensure OAuth callback domain and frontend/backend URLs are consistent with deployed origins
 
 ### Phase 8
 
