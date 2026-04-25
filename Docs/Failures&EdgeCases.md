@@ -1,6 +1,6 @@
-# INDMoney Product Operations Ecosystem — Failures and Edge Cases
+# Groww Product Operations Ecosystem — Failures and Edge Cases
 
-This document lists the most important failures, degraded modes, and edge cases for the INDMoney Product Operations Ecosystem. It is organized by implementation phase so it can be used directly for development planning, manual testing, and regression reviews.
+This document lists the most important failures, degraded modes, and edge cases for the Groww Product Operations Ecosystem. It is organized by implementation phase so it can be used directly for development planning, manual testing, and regression reviews.
 
 The goal is not to eliminate every failure, but to ensure every important failure mode has a designed response. Modern failure-mode analysis emphasizes identifying degraded states, isolating failure impact, and keeping the end-to-end flow usable even when one component is unavailable or slow.[1][2]
 
@@ -19,6 +19,35 @@ These principles apply to all phases:
 - Every major screen should support blank, loading, partial, error, and ideal states rather than assuming ideal data conditions only.[3][4]
 - Boundary values, malformed inputs, and incomplete data must be treated as first-class test cases because edge-case testing is most effective when it targets data integrity, UX damage, and workflow breakage early.[5]
 - Authentication and OAuth-related flows require special attention to token expiry, redirect mismatches, incorrect scopes, and provider-side failures because these paths can block critical workflows completely.[6][7]
+
+***
+
+## Data collection, normalization, chunking, and indexing (Groww)
+
+This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pulse) and **Phase 4** (scraped MF/fee and other docs → RAG). Play Store ingestion uses **Playwright**; MF/fee content uses approved scrapers or imports. Both paths must persist or archive **raw** output where practical, then apply a **normalization layer** before **chunking** and downstream use (pulse preprocessing or BM25/embedding indexes).
+
+### Failures and edge cases
+
+| Scenario | Example | Expected behavior |
+|---|---|---|
+| Playwright selector drift | Google changes Play Store DOM; scraper returns empty or partial reviews | Job fails with a clear error; logs include snapshot or parse stats; Product tab shows `ingestion failed` or last good pulse with timestamp; runbook documents how to update selectors. |
+| Playwright timeout or flaky navigation | slow network, headless crash | Bounded retries with backoff; no partial duplicate rows without idempotency keys; operator-visible failure after max attempts. |
+| Rate limiting or blocking | HTTP 429, captcha, or empty responses from Play Store | Stop retry storm; surface degraded mode; do not spin tight loops against Play Store. |
+| Raw payload never persisted | only normalized rows stored, DOM bug corrupts text | Cannot replay ingestion; prefer versioned raw store or append-only raw log for debugging. |
+| Normalization drops valid reviews | aggressive language filter removes short but valid feedback | Tunable thresholds; metrics on drop rate; manual sample review path before tightening filters. |
+| Normalization fails mid-batch | partial writes to `reviews_raw` | Transactional batches or compensating writes; job reports partial success with counts. |
+| Dedupe over-collapses | distinct users merged incorrectly | Use stable keys (review id + date + hash); document collision handling; avoid merging when ids differ. |
+| Chunking creates empty or huge chunks | HTML not stripped, one giant page per chunk | Normalization must strip markup; chunker enforces max size and minimum token floor; invalid chunks skipped with log. |
+| Index rebuild after scrape | `rebuild_index.py` run twice concurrently | Job locking or idempotent rebuild; no duplicate chunk rows tied to same source version. |
+| MF/fee scraper robots or policy violation | site returns 403 or ToS block | Stop collection; log legal/ops notice; do not bypass with deceptive headers; fallback to manual import if allowed. |
+| Stale RAG index | sources updated but index not rebuilt | Assistant lowers certainty or ops banner flags stale corpus; runbook lists rebuild cadence. |
+
+### Manual checks
+
+- Run Playwright job against a known fixture or dry-run mode when available; force selector failure and confirm alerting.
+- Ingest batch with duplicates and near-duplicates; verify dedupe behavior.
+- Run normalization on noisy HTML; confirm no raw tags in stored chunks.
+- Run concurrent index rebuilds; verify single consistent index state.
 
 ***
 
@@ -105,12 +134,15 @@ These principles apply to all phases:
 | Same pulse generated twice | duplicate cron or repeated click | Pulse creation should be idempotent or version-aware to avoid duplicate records. |
 | Subscription state is inconsistent | user unsubscribes but still appears active | Source-of-truth subscription state should be read consistently before send actions. |
 | History loads partially | latest pulse available but history query fails | Current pulse can render while history shows localized error/empty state. |
+| Playwright job not installed in environment | missing browsers or `playwright` dependency | CI and runbook must install browsers; startup or job prelude fails fast with install instructions. |
+| Groww Play Store job succeeds but zero reviews parsed | DOM change or wrong locale URL | Treat as ingestion failure or explicit empty; log parse count; alert if previously non-zero. |
 
 ### Manual checks for this phase
 - Test with zero reviews.
 - Test with noisy, duplicated, and malformed review samples.
 - Force malformed LLM output and confirm validation catches it.
 - Trigger generate twice and confirm duplicate handling.
+- Run Groww Play Store collection once with intentional selector break (or mock) and confirm operator-visible error path.
 
 ***
 
@@ -137,6 +169,10 @@ These principles apply to all phases:
 | Unsupported financial advice request | user asks for recommendation rather than explanation | Assistant should stay informational and refuse unsupported advisory behavior. |
 | LLM answers without evidence | model hallucinates fees or policies | Eval and runtime rules should treat unsupported claims as failures. |
 | Chat works but source attribution is broken | response content okay, citations absent or source cards missing | UI should still show the answer, but source rendering failure should be visible and logged. |
+| Scraped MF/fee HTML in index | normalization skipped or broken | Retrieval returns polluted chunks; block at ingest validation; rebuild index after fix. |
+| Normalization strips citation metadata | URLs removed before chunk persist | Chunks must retain `source_url` and freshness fields required for grounded answers. |
+| Chunk overlap misconfigured | duplicate near-identical chunks | Tune overlap and dedupe at chunk level; monitor retrieval redundancy. |
+| Embedding or BM25 build partial failure | half of corpus indexed | Query path should detect incomplete index version or block with maintenance message. |
 
 ### Manual checks for this phase
 - Ask unsupported questions.
@@ -144,6 +180,7 @@ These principles apply to all phases:
 - Ask mixed-domain questions.
 - Simulate weak retrieval and verify safe fallback.
 - Refresh during a session and inspect history behavior.
+- Ingest a small scraped corpus with intentional HTML noise; verify normalized chunks and citations after `rebuild_index.py`.
 
 ***
 

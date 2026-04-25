@@ -2,7 +2,7 @@
 
 ## Project overview
 
-This project is a single integrated product-operations dashboard that combines capabilities inspired by three earlier projects:
+This project is the **Groww Product Operations Ecosystem**: a single integrated product-operations dashboard for Groww-related workflows. It combines capabilities inspired by three earlier projects:
 
 - **M1:** FAQ / RAG-style mutual fund assistance
 - **M2:** Weekly Pulse / review intelligence / issue extraction
@@ -32,6 +32,8 @@ The dashboard should support:
 ## Locked decisions
 
 - Use **one repo**
+- **Groww Google Play Store** reviews are collected using the **Playwright** library against the public Play Store listing (Android package `com.nextbillion.groww`; canonical listing URL is recorded in `Deliverables/Resources.md`). Collection runs **server-side or in batch jobs** (not in the browser bundle); respect Play Store terms, rate limits, and robots policies in implementation.
+- **Mutual fund** and **fee explainer** pages are ingested via approved **web scraping** pipelines (separate from Play Store review collection), with the same **normalization → chunking → indexing** discipline as other text sources.
 - Frontend: **Next.js + TypeScript + Tailwind + shadcn/ui**
 - Backend: **FastAPI (Python)**
 - Frontend deployment: **Vercel**
@@ -39,7 +41,7 @@ The dashboard should support:
 - Primary database / source of truth: **Supabase Postgres**
 - Google auth model: **Google OAuth only**
 - **No Google service account**
-- Gmail actions use **Google OAuth**
+- Gmail actions for weekly pulse and for confirmation emails use **Google OAuth**
 - Google Calendar actions use **Google OAuth**
 - Google Sheets access, if needed, also uses **Google OAuth**
 - Scheduler: **GitHub Actions**
@@ -107,7 +109,10 @@ FastAPI Backend (Render)
   +--> Google Sheets API
   +--> Google STT/TTS (optional, later phase)
   +--> GitHub Actions Scheduler Webhook
+  +--> Groww Play Store (Playwright collection jobs)
 ```
+
+Scheduled or manual jobs use **Playwright** to fetch Play Store reviews; scraped MF/fee pages follow separate collectors. Both paths feed **normalization** before chunking or pulse preprocessing.
 
 ## Product surfaces
 
@@ -568,9 +573,19 @@ Support:
 ```text
 Source manifest
    ↓
-source ingestion
+source collection
+   - Groww Play Store reviews: Playwright → raw review records
+   - MF / fee sites: approved scrapers or downloads → raw documents
    ↓
-chunking
+persist raw artifacts (optional but recommended for reproducibility)
+   ↓
+normalization layer
+   - canonical text encoding, whitespace/HTML cleanup
+   - dedupe (URL + content hash, near-duplicate collapse where configured)
+   - metadata extraction (title, section, effective date, source URL)
+   - policy filters (spam, empty, off-topic) and PII minimization
+   ↓
+chunking (semantic sections where possible; bounded max size)
    ↓
 BM25 indexing
    ↓
@@ -583,9 +598,13 @@ optional rerank
 answer composition
 ```
 
+**Corpus split:** by default **Groww Play Store** reviews feed **Weekly Pulse** and Product analytics after collection and normalization (and optional segmentation for long text). **MF and fee explainer** scraped or imported documents feed the **customer RAG** indexes. Do not merge Play Store reviews into MF/fee RAG unless you add an explicit, documented product scope and evals for that mix.
+
 ### Components
 
-- ingest
+- collect (Playwright Play Store, scrapers, or file-based imports)
+- normalize (dedupe, cleanup, schema mapping, policy filters)
+- ingest (write normalized sources and lineage into persistence)
 - chunk
 - bm25
 - embeddings
@@ -593,6 +612,18 @@ answer composition
 - rerank
 - retrieve
 - answer
+
+### Groww Play Store reviews (Playwright)
+
+- Implement collection as a **dedicated job or script** (for example under `scripts/`) using **Playwright** to load the listing and extract review text, rating, date, and review id where available.
+- Persist **raw** responses or parsed rows before normalization so ingestion can be replayed or diffed when the Play Store UI changes.
+- Run the **normalization layer** before pulse preprocessing or any downstream analytics: dedupe, strip boilerplate, handle multilingual text, and downgrade obvious spam.
+- **Chunking** for reviews is primarily for **pulse / theme extraction** (segmenting long threads or concatenated batches), not necessarily the same chunk boundaries as MF RAG chunks; document which path uses which chunk policy.
+
+### Scraped MF and fee explainer documents
+
+- After fetch, apply the **same normalization layer** (cleanup, metadata, dedupe) before **chunking** and dual indexing (BM25 + embeddings).
+- MF and fee chunks must retain **citation metadata** (`source_url`, `last_checked`, `doc_type`) end to end through retrieval.
 
 ### Hybrid query behavior
 
@@ -686,7 +717,13 @@ Generate a PM-facing pulse summarizing review or issue trends, and optionally se
 ### Pulse generation flow
 
 ```text
-reviews / issue inputs
+Groww Play Store reviews (Playwright collection) and/or other issue inputs
+   ↓
+persist raw payloads (immutable or versioned) for audit/debug
+   ↓
+normalization layer (dedupe, language detection, spam/low-signal filtering, PII scrubbing, schema mapping)
+   ↓
+optional chunking / segmentation for long reviews (pulse preprocessing, not RAG retrieval)
    ↓
 Groq preprocessing
    ↓
@@ -1171,7 +1208,9 @@ project-root/
 │
 ├── scripts/
 │   ├── seed_dev_data.py
+│   ├── fetch_groww_playstore_reviews.py   # Playwright: Groww Play Store listing
 │   ├── ingest_sources.py
+│   ├── normalize_collected_text.py        # optional: shared normalization entrypoint
 │   ├── rebuild_index.py
 │   └── run_pulse.py
 │
@@ -1275,6 +1314,7 @@ Use one subfolder per phase (recommended):
 
 ### Phase 1
 
+- Refer to the UI.md, Failures&EdgeCases.md, Rules.md, Runbook.md
 - frontend dashboard shell
 - FastAPI skeleton
 - health route
@@ -1285,13 +1325,16 @@ Use one subfolder per phase (recommended):
 
 ### Phase 2
 
+- Refer to UI.md, Failures&EdgeCases.md, Rules.md, Runbook.md
 - Weekly Pulse backend
 - pulse APIs
 - Product tab UI
 - subscribe / unsubscribe
+- **Groww Play Store** review collection job using **Playwright**; persist raw → **normalization** → optional **chunking/segmentation** for pulse input; store in `reviews_raw` (or equivalent) before Groq/Gemini pulse pipeline
 
 ### Phase 3
 
+- Refer to UI.md, Failures&EdgeCases.md, Rules.md, Runbook.md
 - text chat
 - prompt chips
 - chat persistence
@@ -1299,25 +1342,31 @@ Use one subfolder per phase (recommended):
 
 ### Phase 4
 
+- Refer to the UI.md, Failures&EdgeCases.md, Rules.md, Runbook.md
+- Refer to Failures&EdgeCases.md, Rules.md, Runbook.md
 - RAG engine
 - grounded MF Q&A
 - fee explanation Q&A
 - hybrid Q&A
+- **Scraped / imported MF and fee sources:** raw persist → **normalization layer** → **chunking** → BM25 + embedding indexes; wire `ingest_sources.py` / `rebuild_index.py` into documented runbook steps
 
 ### Phase 5
 
+- Refer to Failures&EdgeCases.md, Rules.md, Runbook.md
 - booking and cancellation workflow
 - booking ID generation
 - booking persistence
 
 ### Phase 6
 
+- Refer to the UI.md, Failures&EdgeCases.md, Rules.md, Runbook.md
 - advisor approval flow
 - advisor tab
 - optional Google Sheets export via OAuth
 
 ### Phase 7
 
+- Refer to Failures&EdgeCases.md, Rules.md, Runbook.md
 - Gmail send via OAuth
 - Calendar event creation via OAuth
 - MCP governed actions
@@ -1328,6 +1377,7 @@ Use one subfolder per phase (recommended):
 
 ### Phase 8
 
+- Refer to Failures&EdgeCases.md, Rules.md, Runbook.md
 - voice STT/TTS
 - evals
 - hardening
@@ -1337,7 +1387,7 @@ Use one subfolder per phase (recommended):
 ## Cursor implementation rules
 
 - implement one phase at a time
-- after each phase, run tests and evals before phase transition
+- after each phase, run tests, fix errors and run evals before phase transition
 - fix all discovered errors before phase transition
 - enforce minimum eval score of 85% before moving to next phase
 - store per-phase eval outputs under `Deliverables/Evals/phase-*`

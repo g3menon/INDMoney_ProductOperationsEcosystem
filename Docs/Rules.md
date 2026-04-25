@@ -1,6 +1,6 @@
-# INDMoney Product Operations Ecosystem — Rules & Guardrails
+# Groww Product Operations Ecosystem — Rules & Guardrails
 
-This document defines the implementation rules, constraints, and execution guardrails for the integrated Product Operations Ecosystem. All contributors and AI coding agents must follow these rules for every phase.
+This document defines the implementation rules, constraints, and execution guardrails for the integrated Groww Product Operations Ecosystem. All contributors and AI coding agents must follow these rules for every phase.
 
 The system combines:
 - Customer support and fee explanation.
@@ -37,6 +37,8 @@ The system combines:
 | G15 | **Token usage must be intentional.** Minimize prompt size, redundant retries, duplicate summarization, and repeated transformations. | Keeps development and runtime efficient. |
 | G16 | **No hidden architecture drift.** New folders, services, or abstractions must align with the documented architecture before they are introduced. | Prevents AI-generated repo sprawl. |
 | G17 | **No hardcoded fallback magic values in production paths.** Default behavior may exist, but fake IDs, fake URLs, fake times, or silent mock fallbacks must not leak into real logic. | Avoids hard-to-find production bugs. |
+| G18 | **Groww Play Store ingestion uses Playwright in server or batch context only.** Do not ship Play Store automation in the Next.js client bundle; pin browser versions in CI; cap concurrency and retries to respect rate limits and provider stability. | Keeps secrets and automation off the public web surface and reduces ban risk. |
+| G19 | **Collected text must pass a normalization layer before chunking or indexing.** Raw Play Store payloads and scraped HTML must be cleaned, deduped, schema-mapped, and policy-filtered before chunks are written to retrieval indexes or pulse tables. | Prevents garbage chunks, duplicate themes, and unstable RAG/pulse quality. |
 
 ## UI and UX rules
 
@@ -90,6 +92,7 @@ The system combines:
 | D6 | **Duplicate prevention must exist at both UI and backend layers.** | Important for booking, approval, and send actions. |
 | D7 | **Never persist raw secrets or OAuth tokens in plaintext.** If token persistence is required, it must be encrypted or stored using the approved secure mechanism. | Security requirement. |
 | D8 | **Artifacts must be traceable.** Pulse IDs, booking IDs, session IDs, and approval records must be linkable across the workflow. | Enables auditability and debugging. |
+| D9 | **Preserve lineage for ingested data.** Store or archive raw collection output where practical, then persist normalized rows with `source`, `source_id`, `ingested_at`, and `content_hash` (or equivalent) so replays and dedupe are possible. | Supports debugging Play Store DOM changes and scraper drift. |
 
 ## LLM and retrieval rules
 
@@ -105,6 +108,10 @@ The system combines:
 | R8 | **The same user intent should yield the same workflow behavior across text and voice.** | Runtime parity. |
 | R9 | **Prompt templates belong in versioned, centralized files.** Do not scatter major prompts across random modules. | Easier iteration and auditing. |
 | R10 | **Use model fallbacks intentionally.** If multiple models are supported, define when and why each is used; never switch silently without logging. | Predictability and debugging. |
+| R11 | **Hybrid retrieval baseline is strongly recommended for finance Q&A.** Use sparse + dense retrieval in parallel, then fuse (for example with RRF); apply reranking when enabled by the phase implementation. | Improves recall and groundedness for mixed query styles while staying phase-compatible. |
+| R12 | **Chunk by semantic sections with metadata, not naive fixed windows only.** Keep source metadata (e.g., source URL, doc type, topic, last checked) attached through retrieval and citation. | Preserves context quality and citation traceability. |
+| R13 | **Disallowed intent classes must short-circuit.** Advice-seeking or unsafe/PII requests must refuse early instead of entering normal retrieval + generation. | Reduces policy and safety failures. |
+| R14 | **Constrained answer templates are preferred for citation-critical outputs.** When source fidelity matters, enforce structured response shapes with explicit citation fields. | Reduces free-form hallucination and missing-source drift. |
 
 ## Workflow integrity rules
 
@@ -132,6 +139,8 @@ The system combines:
 | I6 | **Each integration must have a local mock or dev-safe path.** | Supports manual testing without real side effects when appropriate. |
 | I7 | **Integration responses must be normalized.** Convert provider-specific results into internal status models before passing them deeper into the app. | Simplifies downstream logic. |
 | I8 | **Provider rate limits and quotas must be respected.** | Important for Google APIs and LLM providers. |
+| I9 | **MCP is a thin governed action layer, not a default runtime path.** Keep latency-sensitive live chat/voice operations on direct service integrations; use MCP for explicit governed external actions (for example, scheduler- or approval-triggered side effects). | Preserves responsiveness while retaining controlled actions where they matter. |
+| I10 | **Playwright dependencies are explicit.** Declare `playwright` and browser install steps in backend or scripts `requirements`/CI; document headless flags and timeouts; fail jobs with actionable errors when selectors break. | Play Store UI changes are frequent; ops must detect breakage quickly. |
 
 ## Observability and debugging rules
 
@@ -200,62 +209,76 @@ The system combines:
 | P1.3 | **Create a single backend health endpoint and a single frontend connectivity check.** | The first end-to-end test proves frontend-to-backend communication. |
 | P1.4 | **Safe settings serialization only.** | Logs and debug screens must never expose secrets. |
 | P1.5 | **Use the documented project structure as the authority.** | Avoid ad hoc folder creation outside the planned scaffold. |
+| P1.6 | **Implement dashboard shell and badges route foundation in this phase.** | Establish frontend shell and backend badges endpoint shape early. |
+| P1.7 | **Supabase and local cross-origin foundations must be validated.** | Confirm DB connectivity baseline plus frontend (`localhost:3000`) to backend (`localhost:8000`) CORS/preflight behavior. |
 
 **Definition of Done**
 - Frontend boots.
 - Backend boots.
 - Health endpoint works.
 - Frontend can call backend successfully.
+- Dashboard shell foundation is present.
+- Badges route foundation exists.
+- Supabase connection foundation is validated.
 - `.env.example` is aligned with implementation.
 
-### Phase 2 — Dashboard shell and role tabs
+### Phase 2 — Weekly Pulse backend and Product tab
 
 | ID | Rule | Implementation expectation |
 |---|---|---|
-| P2.1 | **Dashboard shell belongs to the frontend only.** | Tabs, cards, banners, and placeholders live in presentation code. |
-| P2.2 | **No business logic in tab components.** | Components render API responses but do not own workflow rules. |
-| P2.3 | **Use mocked or stubbed responses before real integrations.** | UI shape stabilizes before backend complexity grows. |
-| P2.4 | **All tabs must handle loading, empty, partial, and error states.** | No blank or brittle screens. |
-| P2.5 | **Status language must be consistent across tabs from the start.** | Avoid later refactoring of labels and badges. |
-
-**Definition of Done**
-- Customer, Product, and Advisor tabs render.
-- Tab switching works.
-- Each tab displays loading, empty, and error states.
-- UI can consume mock backend payloads.
-
-### Phase 3 — Product pulse foundation
-
-| ID | Rule | Implementation expectation |
-|---|---|---|
-| P3.1 | **Minimize LLM/API usage.** | Batch transformations where possible; avoid one-call-per-record designs. |
-| P3.2 | **Only cleaned, bounded review data may be analyzed.** | No raw noisy data passed directly downstream. |
-| P3.3 | **Generated outputs must follow strict schemas.** | Theme summaries, quotes, actions, and metadata are validated before persistence. |
-| P3.4 | **Product outputs must be leadership-readable.** | Keep summaries concise and action-oriented. |
-| P3.5 | **Preserve sentiment balance.** | Positive and negative signals must both remain visible. |
+| P2.1 | **Pulse generation and retrieval logic live in backend services.** | Product tab renders backend outputs; it does not own pulse business logic. |
+| P2.2 | **Weekly pulse APIs must support current and history retrieval.** | Product tab can render latest pulse and prior pulse states reliably. |
+| P2.3 | **Subscribe and unsubscribe paths must be explicit and safe.** | Avoid ambiguous subscription state transitions and duplicate subscriptions. |
+| P2.4 | **Product tab must handle loading, empty, partial, and error states.** | No blank or brittle pulse dashboard states. |
+| P2.5 | **Pulse output quality must prioritize actionability over verbosity.** | Keep PM-facing summaries concise, clear, and decision-useful. |
+| P2.6 | **Groww Play Store reviews are ingested via Playwright as a documented job.** | Collect reviws of upto 8 weeks back only, Job writes raw and/or normalized review records suitable for pulse preprocessing; failures are logged with correlation ids. |
+| P2.7 | **Normalization runs before pulse LLM steps.** | Dedupe, spam/low-signal filtering, and PII minimization are applied consistently so Groq/Gemini see bounded, clean text, no swear words, only collect reviews in english, no emojis, only use reviws that are more than 20 words. Have a balance of differently rated reviews. Make sure 4:1 ratio of improvements/issues:positive feedback reviews is maintained |
+| P2.8 | **No PII** | Do not collect any personal information and PII destails like mobile number, Aadhar number or names of the user. Collect review ID for database reference |
 
 **Definition of Done**
 - Pulse generation API works.
-- Product tab renders latest pulse.
-- History and subscription path is stubbed or implemented.
-- Invalid or malformed outputs are rejected gracefully.
+- Product tab renders current pulse.
+- Pulse history is retrievable.
+- Subscribe and unsubscribe flows work.
+- Groww Play Store review collection and normalization path is demonstrable (manual or scheduled run).
 
-### Phase 4 — Customer chat and RAG foundation
+### Phase 3 — Customer text chat foundation
 
 | ID | Rule | Implementation expectation |
 |---|---|---|
-| P4.1 | **Chat runtime must be stable before voice work starts.** | Customer support flow works fully in text first. |
+| P3.1 | **Customer chat runtime must be stable in text mode first.** | Text chat must work before voice adapters are introduced. |
+| P3.2 | **Prompt chips use the same validated runtime path as typed input.** | Suggestions cannot bypass request validation or policy checks. |
+| P3.3 | **Chat persistence is required for session continuity.** | Messages and session context are stored and retrievable. |
+| P3.4 | **Customer routing logic belongs in backend services.** | Frontend handles rendering and interaction only. |
+| P3.5 | **Customer chat UI must expose honest state transitions.** | Show loading, success, fallback, and failure states clearly. |
+
+**Definition of Done**
+- Customer chat UI works.
+- Users can submit text prompts and prompt chips.
+- Chat sessions and messages persist.
+- Customer routing skeleton is implemented in backend.
+
+### Phase 4 — RAG and grounded hybrid Q&A
+
+| ID | Rule | Implementation expectation |
+|---|---|---|
+| P4.1 | **RAG runtime must keep retrieval and generation separated.** | Retrieval selects context; generation composes only from approved context. |
 | P4.2 | **Retrieval and answer generation remain separate.** | Retrieval selects context; generation uses only approved context and policy prompt. |
 | P4.3 | **Grounded answers only.** | Weak context must trigger safe fallback behavior. |
-| P4.4 | **Customer responses must remain product-safe.** | Informational tone only; no unsupported financial guidance. |
-| P4.5 | **Prompt suggestions cannot bypass validation.** | Suggested questions use the same runtime path as typed questions. |
+| P4.4 | **MF, fee, and hybrid queries must all be supported.** | Combined prompts are answered in one coherent grounded response. |
+| P4.5 | **Customer responses must remain product-safe.** | Informational tone only; no unsupported financial guidance. |
+| P4.6 | **Phase 4 retrieval stack should be hybrid.** | Implement BM25 + embeddings in parallel with fusion; rerank where configured. |
+| P4.7 | **Retrieval output must carry citation metadata end to end.** | Returned chunks include source identity and freshness metadata used in the final response. |
+| P4.8 | **MF and fee scraped sources use normalize → chunk → index.** | No raw HTML in vector/BM25 tables; chunk boundaries and metadata are stable enough to rebuild indexes via `rebuild_index.py` after source updates. |
 
 **Definition of Done**
 - Customer chat UI works.
 - Users can ask supported questions.
 - Hybrid FAQ and fee-explainer retrieval works.
 - Weak retrieval results lead to safe fallback behavior.
-- Session state persists as designed.
+- Grounded response citations and metadata are preserved.
+- At least one MF and one fee source path runs through normalization, chunking, and index rebuild documented in the runbook.
+-disclaimers are used wherever necessary according to @ProblemStatement.md
 
 ### Phase 5 — Booking and customer workflow state
 
@@ -283,6 +306,7 @@ The system combines:
 | P6.3 | **Approval actions must be idempotent.** | Double-clicks or retries must not trigger duplicate side effects. |
 | P6.4 | **Advisor actions must update shared state consistently.** | Customer and advisor views stay coherent after approval changes. |
 | P6.5 | **Approval and rejection must be auditable.** | Persist status, timestamp, and relevant actor context. |
+| P6.6 | **Approval flow must remain compatible with later governed external actions.** | Keep side-effect triggering boundaries explicit so Phase 7 integrations can be added cleanly. |
 
 **Definition of Done**
 - Pending approvals are visible.
@@ -317,6 +341,7 @@ The system combines:
 | P8.3 | **Voice and chat must show behavior parity.** | Same user intent should produce the same downstream behavior. |
 | P8.4 | **Spoken outputs must be concise and unambiguous.** | Especially for times, dates, and confirmation states. |
 | P8.5 | **Hardening must include degraded modes.** | LLM outages, integration failures, and slow services must have safe fallbacks. |
+| P8.6 | **Voice remains an adapter over the existing text runtime.** | Voice may improve I/O only; it must not become a separate business workflow implementation. |
 
 **Definition of Done**
 - Voice input and output work.
@@ -351,6 +376,7 @@ Before closing any phase, verify at least the following:
 |---|---|
 | RAG chat | groundedness, relevance, fallback quality, source fidelity |
 | Fee explainer | factual correctness, clarity, source support, no invented fees |
+| Review / corpus ingestion | Playwright job success rate, parse coverage, normalization drop reasons, dedupe correctness, chunk/index integrity |
 | Weekly Pulse | theme accuracy, quote fidelity, sentiment balance, actionability |
 | Booking flow | state correctness, slot parsing, duplicate prevention, recovery handling |
 | Advisor approval | state transition correctness, idempotency, auditability |
