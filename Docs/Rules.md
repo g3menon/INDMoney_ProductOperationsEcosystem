@@ -29,7 +29,7 @@ The system combines:
 | G7 | **Fail gracefully.** Known failure modes must return safe user-facing fallbacks and actionable logs. The system must not crash silently. | External APIs and LLMs will fail intermittently. |
 | G8 | **Structured logging is mandatory.** Logs must include correlation IDs, layer context, durations, and normalized error categories. | Enables debugging across multi-step workflows. |
 | G9 | **Idempotency is required for side effects.** Retries must not create duplicate emails, calendar events, sheet writes, approval actions, or bookings. | Prevents duplicate real-world actions. |
-| G10 | **Documentation must match implementation.** `README.md`, architecture docs, `Docs/Rules.md`, and `.env.example` must stay aligned with the actual code. | Prevents documentation drift. |
+| G10 | **Documentation must match implementation.** `README.md`, architecture docs, `Docs/Rules.md`, `Docs/UserFlow.md`, `Docs/UI.md`, `Deliverables/Resources.md`, and `.env.example` must stay aligned with the actual code. | Prevents documentation drift. |
 | G11 | **Pin dependencies where practical.** Use deterministic versions for backend and frontend packages. | Improves reproducibility and debugging. |
 | G12 | **Every phase must be manually testable.** A phase is not complete unless its core happy path can be exercised manually. | Ensures visible, working progress. |
 | G13 | **Prefer one source of truth.** Shared states, constants, schemas, and workflow enums must live in central modules rather than repeated ad hoc. | Prevents inconsistency across layers. |
@@ -61,6 +61,7 @@ The system combines:
 | UI15 | **Use reusable shared state components.** `LoadingState`, `EmptyState`, `ErrorState`, `InlineStatus`, and `ConfirmationBanner` should be shared components. | Keeps the interface consistent. |
 | UI16 | **Use optimistic updates only when rollback is defined.** If UI state changes before backend confirmation, rollback behavior must be explicit. | Prevents stale or misleading views. |
 | UI17 | **Tables and cards must prioritize scanability.** Use concise labels, stable alignment, and consistent status placement. | Important for operations dashboards. |
+| UI18 | **Fee explainer UI is Customer- and Advisor-facing only.** Do not render the structured six-bullet fee pattern on the **Product** tab, in the **weekly pulse email** body, or other PM surfaces; Product shows pulse, themes, quotes, actions, and analytics per `Docs/UserFlow.md` and `Docs/UI.md`. | Keeps PM surfaces analytical while preserving regulated, source-backed fee chat where users expect it. |
 
 ## Latency and performance rules
 
@@ -107,7 +108,7 @@ The system combines:
 | R7 | **Review summarization must preserve representative signal.** Do not overfit to only negative or only positive samples. | Needed for useful product intelligence. |
 | R8 | **The same user intent should yield the same workflow behavior across text and voice.** | Runtime parity. |
 | R9 | **Prompt templates belong in versioned, centralized files.** Do not scatter major prompts across random modules. | Easier iteration and auditing. |
-| R10 | **Use model fallbacks intentionally.** If multiple models are supported, define when and why each is used; never switch silently without logging. | Predictability and debugging. |
+| R10 | **Use Gemini 2.5 Flash by default and fallbacks intentionally.** Primary generation uses **`gemini-2.5-flash`** (`GEMINI_MODEL`). Configure **`GEMINI_API_KEY_FALLBACK`** and **`GROQ_API_KEY_FALLBACK`**; on primary-key **quota / rate limit / token exhaustion** (or equivalent provider errors), **automatically retry once** with the matching **fallback** key before failing the user request. Log **tier** (primary vs fallback) and **provider**, never key values. | Keeps the product running through key rotation and burst traffic without silent wrong-model behavior. |
 | R11 | **Hybrid retrieval baseline is strongly recommended for finance Q&A.** Use sparse + dense retrieval in parallel, then fuse (for example with RRF); apply reranking when enabled by the phase implementation. | Improves recall and groundedness for mixed query styles while staying phase-compatible. |
 | R12 | **Chunk by semantic sections with metadata, not naive fixed windows only.** Keep source metadata (e.g., source URL, doc type, topic, last checked) attached through retrieval and citation. | Preserves context quality and citation traceability. |
 | R13 | **Disallowed intent classes must short-circuit.** Advice-seeking or unsafe/PII requests must refuse early instead of entering normal retrieval + generation. | Reduces policy and safety failures. |
@@ -232,7 +233,7 @@ The system combines:
 | P2.4 | **Product tab must handle loading, empty, partial, and error states.** | No blank or brittle pulse dashboard states. |
 | P2.5 | **Pulse output quality must prioritize actionability over verbosity.** | Keep PM-facing summaries concise, clear, and decision-useful. |
 | P2.6 | **Groww Play Store reviews are ingested via Playwright as a documented job.** | Collect reviws of upto 8 weeks back only, Job writes raw and/or normalized review records suitable for pulse preprocessing; failures are logged with correlation ids. |
-| P2.7 | **Normalization runs before pulse LLM steps.** | Dedupe, spam/low-signal filtering, and PII minimization are applied consistently so Groq/Gemini see bounded, clean text, no swear words, only collect reviews in english, no emojis, only use reviws that are more than 20 words. Have a balance of differently rated reviews. Make sure 4:1 ratio of improvements/issues:positive feedback reviews is maintained |
+| P2.7 | **Normalization runs before pulse LLM steps.** | Dedupe, spam/low-signal filtering, and PII minimization are applied consistently so Groq/Gemini(2.5 flash) see bounded, clean text, no swear words, only collect reviews in english, no emojis, only use reviws that are more than 20 words, collect reviews that people found most helpful eg "50 people found this review helpful". Have a balance of differently rated reviews. Make sure 4:1 ratio of improvements/issues:positive feedback reviews is maintained |
 | P2.8 | **No PII** | Do not collect any personal information and PII destails like mobile number, Aadhar number or names of the user. Collect review ID for database reference |
 
 **Definition of Done**

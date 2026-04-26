@@ -14,7 +14,8 @@ Use it during:
 - **Frontend:** Next.js on Vercel
 - **Backend:** FastAPI on Render
 - **Database:** Supabase
-- **LLM providers:** Gemini and/or Groq
+- **LLM providers:** Gemini (**`gemini-2.5-flash`** by default) and Groq, each with **primary + fallback** API keys (`Docs/Architecture.md`)
+- **Canonical Groww URLs & Playwright rules:** `Deliverables/Resources.md`
 - **Google integrations:** Gmail, Calendar, Sheets
 - **Scheduler:** GitHub Actions and/or backend internal trigger
 
@@ -24,6 +25,9 @@ Keep these aligned:
 - `Docs/Architecture.md`
 - `Docs/Rules.md`
 - `Docs/Failures&EdgeCases.md`
+- `Docs/UserFlow.md`
+- `Docs/UI.md`
+- `Deliverables/Resources.md`
 - `Docs/Runbook.md`
 - `.env.example`
 
@@ -46,7 +50,10 @@ SUPABASE_URL=
 SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 GEMINI_API_KEY=
+GEMINI_API_KEY_FALLBACK=
+GEMINI_MODEL=gemini-2.5-flash
 GROQ_API_KEY=
+GROQ_API_KEY_FALLBACK=
 GOOGLE_PROJECT_ID=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
@@ -161,6 +168,17 @@ Fix:
 - correct env vars
 - fix startup code
 - redeploy
+
+### LLM quota or key exhaustion (Gemini / Groq)
+Check:
+- logs for **429**, **quota**, or **resource exhausted**
+- whether the request retried on **`GEMINI_API_KEY_FALLBACK`** or **`GROQ_API_KEY_FALLBACK`**
+- `GEMINI_MODEL` is set to **`gemini-2.5-flash`** unless you intentionally changed it
+
+Fix:
+- rotate or refill quotas on the primary project
+- verify **both** keys per provider are valid and distinct
+- temporarily reduce traffic or enable stricter caching; never log key strings
 
 ### Supabase failures
 Check:

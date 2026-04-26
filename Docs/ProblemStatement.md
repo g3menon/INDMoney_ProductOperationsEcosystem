@@ -1,10 +1,14 @@
-# Capstone Project: The "Investor Ops & Intelligence Suite"
+# Capstone context — Groww Product Operations Ecosystem
+
+This repository implements a single **Groww Product Operations** dashboard (see `Docs/Architecture.md`). The sections below (M1–M3) describe the original capstone milestones; **all product, source, and UX decisions here are Groww-only**—no multi-brand picker.
 
 ## 1. Project vision
 
 You have built a RAG Chat Bot (M1), a Review Analyst (M2), and an AI Voice Scheduler (M3). In a professional setting, these are not isolated scripts; they are part of a single **Product Operations Ecosystem**.
 
-**Goal:** Integrate your milestones into a unified **Investor Ops & Intelligence Suite**. This product helps a fintech company (e.g. Groww, INDMoney) by using internal data (reviews) to improve customer-facing tools (FAQ and voice) while keeping a **human-in-the-loop** for compliance.
+**Goal:** Integrate your milestones into one **Groww Product Operations** surface: reviews and operational intelligence improve **Groww** customer tools (FAQ and voice) while keeping a **human-in-the-loop** for compliance.
+
+**Implementation note (this repo):** The structured **fee explainer** (e.g. six-bullet fee answers) is exposed only on **Customer** and **Advisor**-facing flows, aligned with `Docs/UserFlow.md`. The **Product** tab focuses on pulse, themes, quotes, and analytics—not standalone fee-explainer blocks.
 
 ---
 
@@ -81,15 +85,7 @@ Run and document **at least three** evaluation types on the final system.
 
 ## M1 — Mutual fund FAQs (facts-only Q&A)
 
-Pick **one** product from:
-
-- INDMoney  
-- Groww  
-- PowerUp Money  
-- Wealth Monitor  
-- Kuvera  
-
-All milestones use the same product you choose here.
+**Product for this repository:** **Groww** only. Canonical public fund URLs and Play Store rules live in `Deliverables/Resources.md`.
 
 ### Milestone brief
 
@@ -161,6 +157,8 @@ Retail users comparing schemes; support/content teams answering repetitive MF qu
 ## M2 — Review pulse, fee explainer, and MCP
 
 Build an AI workflow that analyzes recent product reviews to produce a concise **weekly product pulse** and a structured explanation for a **common fee scenario**. The system clusters feedback into themes, extracts user quotes, and produces actionable insights while using **MCP** to append results to notes and create an **approval-gated** email draft.
+
+**Shipped Groww repo (this codebase):** the **weekly PM email** mirrors **pulse dashboard content** only; it does **not** ship the capstone-style combined “pulse + fee explainer” body to PMs. **Fee explainer** outputs are routed to **Customer** chat and **Advisor** booking-related surfaces, per `Docs/UserFlow.md`.
 
 For the **same product** as M1:
 

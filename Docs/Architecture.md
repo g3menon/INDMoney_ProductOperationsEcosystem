@@ -47,10 +47,12 @@ The dashboard should support:
 - Scheduler: **GitHub Actions**
 - LLM split:
   - **Groq** for token-heavy preprocessing / cleanup
-  - **Gemini** for synthesis / final answer generation
+  - **Gemini** for synthesis / final answer generation, using **`gemini-2.5-flash`** as the default generation model unless overridden by config (see environment variables).
+- **Provider resilience:** configure a **primary** and **fallback** API key for both Gemini and Groq. The backend **must** automatically switch to the configured fallback when the primary returns rate-limit / quota / billing-related errors (or other key-specific failures), and must log which key tier was used—without printing secret values.
 - MCP is **lightweight**, used only for governed external actions
 - Business logic lives in **FastAPI**, not in the frontend
 - Google Sheets is **not** a source of truth; it is only a downstream operational/export surface if needed
+- **Canonical URLs and scraping rules** (Groww Play Store, MF fund pages, fee fields, reference UI links) live in **`Deliverables/Resources.md`**; implementation docs must not duplicate divergent URL lists.
 
 ---
 
@@ -155,6 +157,7 @@ Scheduled or manual jobs use **Playwright** to fetch Play Store reviews; scraped
 - booking issue analytics
 - ability to view the csv of the data displayed on pulse and download it
 - Monday 10 a.m. IST weekly send workflow
+- **No structured fee-explainer tutorial** (e.g. the customer six-bullet fee pattern) on the Product tab or inside the **weekly pulse email** body; those patterns are **Customer** and **Advisor** surfaces only, per `Docs/UserFlow.md` and `Docs/UI.md`.
 
 ### 3. Advisor tab
 
@@ -181,6 +184,7 @@ Synthesized from `Docs/UserFlow.md`. The tab feature lists above describe *what*
 - The **same pulse** is shown on the dashboard; on subscribe, the user should receive the **current** pulse and then **recurring** weekly pulses every **Monday 10:00 IST**.
 - The dashboard must show **clear feedback** when the user subscribes (e.g. confirmation, next send time, and send/health status).
 - The Product area should surface **issue analytics** for the main reasons customers **book advisor sessions** (derived from **chat/booking** context—e.g. themes in the pre-booking chat or booking metadata—not from Google Sheets as a source of truth). Align analytics with the **“voice / chat brief”** context that informs advisor outreach where applicable.
+- **Fee explainer scope:** PM-facing pulse and email content focuses on **themes, quotes, actions, and downloadables**—not the customer-style **fee Q&A** pattern. If a link to the live dashboard is included in email, it is for **pulse and operations context**, not to replace **Customer** fee chat.
 
 ### Customer flow
 
@@ -197,6 +201,7 @@ Synthesized from `Docs/UserFlow.md`. The tab feature lists above describe *what*
 - The advisor view shows **pending** items and **upcoming** slots, with visible **booking IDs** for work booked from the **Customer** path.
 - Each pending/upcoming item should show a **summary of the customer’s prior chat** so the advisor has context.
 - The advisor can review a **proposed confirmation** (including **booking ID** and a **summary of the conversation** before the appointment) when the product surfaces those previews.
+- **Fee explainer on Advisor surfaces:** structured fee explanations (same **six-bullet**, source-backed pattern as Customer when used) appear **only** in advisor-facing contexts tied to **booking / confirmation review** (e.g. proposed email body, fee notes derived from the customer’s questions)—not as a general PM dashboard widget.
 
 ---
 
@@ -308,7 +313,7 @@ Use Groq for:
 
 ### Gemini responsibilities
 
-Use Gemini for:
+Use **Gemini 2.5 Flash** (`gemini-2.5-flash` via `GEMINI_MODEL` or equivalent settings) for:
 
 - final weekly pulse synthesis
 - quote selection logic if model-based
@@ -323,6 +328,13 @@ Use Gemini for:
 Prefer deterministic logic first.
 
 Use LLMs only where they add meaningful product value.
+
+### API keys, quotas, and fallbacks
+
+- Store **`GEMINI_API_KEY`** (primary) and **`GEMINI_API_KEY_FALLBACK`**; store **`GROQ_API_KEY`** (primary) and **`GROQ_API_KEY_FALLBACK`**.
+- On **429**, **resource exhausted**, **quota**, or **billing** errors from the primary key—or when the application detects **token budget exhaustion** for a given call—**retry the same logical request once** using the **fallback** key for that provider before surfacing a user-visible failure.
+- If **both** keys fail for a provider, degrade gracefully (cached pulse, safe chat fallback, or explicit “try again later”) and log structured error metadata **without** logging key material.
+- Record in observability which **tier** (primary vs fallback) succeeded for post-incident analysis.
 
 ---
 
@@ -1253,7 +1265,10 @@ SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
 
 GEMINI_API_KEY=
+GEMINI_API_KEY_FALLBACK=
+GEMINI_MODEL=gemini-2.5-flash
 GROQ_API_KEY=
+GROQ_API_KEY_FALLBACK=
 
 GOOGLE_PROJECT_ID=
 GOOGLE_CLIENT_ID=
@@ -1275,6 +1290,8 @@ DEFAULT_TIMEZONE=Asia/Kolkata
 
 ### Env rules
 
+- `GEMINI_MODEL` defaults to **`gemini-2.5-flash`**; change only with explicit compatibility testing.
+- `GEMINI_API_KEY_FALLBACK` and `GROQ_API_KEY_FALLBACK` are backend-only; the runtime **must** use them when primary keys hit quota or token limits as described in **API keys, quotas, and fallbacks** under LLM task split.
 - `SUPABASE_SERVICE_ROLE_KEY` is backend-only
 - `GOOGLE_CLIENT_SECRET` is backend-only
 - refresh tokens are backend-only

@@ -81,43 +81,13 @@ This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pul
 
 ***
 
-## Phase 2 — Dashboard shell and role tabs
+## Phase 2 — Weekly Pulse backend and Product tab
 
 ### Main failure themes
-- UI renders only the happy path.
-- Empty and partial states are not designed.
-- Tabs drift into inconsistent patterns.
-- Mock data assumptions break real integration later.
-
-### Failures and edge cases
-
-| Scenario | Example | Expected behavior |
-|---|---|---|
-| Empty data on first load | no bookings, no pulse history, no pending approvals | Show informative empty states with the next expected action instead of blank sections.[8][4] |
-| One tab loads, another fails | Product tab works, Advisor tab API fails | Dashboard should show partial success rather than a full-page crash.[3] |
-| Very slow tab response | one panel takes several seconds | Show loading skeleton or inline loading state quickly; user should know the app is working.[4] |
-| UI renders null or partial fields | missing quote text, missing theme title, missing timestamp | Render fallback labels like `Unavailable` or hide optional sections safely; never crash on undefined values.[9] |
-| Long labels or large counts break layout | large badge values, long error messages | Layout should wrap or truncate gracefully; no overlap or overflow. |
-| Repeated click on tab or reload | rapid switching between tabs | UI should remain stable without duplicate requests or visual jitter. |
-| Stale mock assumptions | mocked payload shape differs from backend response | Shared schemas or typed contracts should catch mismatches early. |
-| Error state with no recovery | network fails once and user cannot retry | Error state should allow retry or refresh. |
-| Keyboard-only navigation fails | tabs work only with mouse | Core navigation should remain keyboard accessible. |
-
-### Manual checks for this phase
-- Load the dashboard with no data in all tabs.
-- Break one tab endpoint and confirm the others still render.
-- Test tab navigation with keyboard only.
-- Test long strings, zero values, and null fields.
-
-***
-
-## Phase 3 — Product pulse foundation
-
-### Main failure themes
-- Review ingestion is noisy or incomplete.
-- LLM output is malformed or too expensive.
-- Product insights are misleading, unbalanced, or duplicate-heavy.
-- Background processing blocks the UI.
+- Groww Play Store ingestion (Playwright) or normalization fails while the Product tab assumes pulse data exists.
+- Pulse APIs, subscription, or history drift or duplicate.
+- Product tab renders only the happy path for pulse panels.
+- LLM pulse output is malformed, unbalanced, or blocked by quota (primary vs fallback keys).
 
 ### Failures and edge cases
 
@@ -136,6 +106,9 @@ This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pul
 | History loads partially | latest pulse available but history query fails | Current pulse can render while history shows localized error/empty state. |
 | Playwright job not installed in environment | missing browsers or `playwright` dependency | CI and runbook must install browsers; startup or job prelude fails fast with install instructions. |
 | Groww Play Store job succeeds but zero reviews parsed | DOM change or wrong locale URL | Treat as ingestion failure or explicit empty; log parse count; alert if previously non-zero. |
+| Primary LLM key quota hit during pulse | Gemini or Groq 429 | Automatic **fallback key** retry per `Docs/Architecture.md`; then graceful degradation if both fail. |
+| Product tab UI renders null pulse fields | missing quote text, missing theme title, missing timestamp | Render fallback labels like `Unavailable` or hide optional sections safely; never crash on undefined values.[9] |
+| Other tabs fail while Product works | Advisor API down | Dashboard should show partial success rather than a full-page crash.[3] |
 
 ### Manual checks for this phase
 - Test with zero reviews.
@@ -143,16 +116,41 @@ This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pul
 - Force malformed LLM output and confirm validation catches it.
 - Trigger generate twice and confirm duplicate handling.
 - Run Groww Play Store collection once with intentional selector break (or mock) and confirm operator-visible error path.
+- Force primary LLM key failure and confirm fallback tier is used once before user-visible failure.
 
 ***
 
-## Phase 4 — Customer chat and RAG foundation
+## Phase 3 — Customer text chat foundation
+
+### Main failure themes
+- Chat persistence or routing breaks while the UI looks healthy.
+- Prompt chips bypass validation or policy.
+- Customer tab empty/error states are undefined.
+
+### Failures and edge cases
+
+| Scenario | Example | Expected behavior |
+|---|---|---|
+| Conversation state resets unexpectedly | refresh loses chat history | If persistence is designed, session history should reload; if not, UI should state the limitation clearly. |
+| Prompt suggestions bypass runtime checks | clicking a chip skips validation | Suggested prompts must go through the same processing path as typed input. |
+| Empty customer tab on first load | no session yet | Show a helpful empty state and input affordances instead of a blank panel.[8][4] |
+| Very slow first token | model cold start | Show inline waiting state quickly; user should know the app is working.[4] |
+| Fee or MF question routed incorrectly | intent classifier wrong | User-visible clarification or safe fallback; log routing decision for debugging. |
+
+### Manual checks for this phase
+- Start a session, refresh, and confirm history behavior matches design.
+- Submit via chips and typed input; confirm identical validation paths.
+- Exercise empty and error states on the Customer tab.
+
+***
+
+## Phase 4 — RAG and grounded hybrid Q&A
 
 ### Main failure themes
 - Retrieval is weak or mismatched.
 - LLM answers are ungrounded.
-- Hybrid queries behave inconsistently.
-- Chat state is lost or corrupted.
+- Hybrid MF + fee queries behave inconsistently.
+- Index or normalization defects corrupt grounded answers.
 
 ### Failures and edge cases
 
@@ -163,8 +161,6 @@ This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pul
 | Hybrid question spans multiple domains | user asks about both a mutual fund FAQ and fee issue in one message | System should either answer both with grounded support or clarify scope if context is incomplete. |
 | User asks ambiguous question | `charges?`, `why so much?`, `this fee?` | Assistant should ask a clarifying question rather than guessing. |
 | Query is too long | pasted paragraph, screenshot transcript, or long complaint | System should truncate, summarize, or pre-process safely without crashing or exceeding prompt budgets. |
-| Conversation state resets unexpectedly | refresh loses chat history | If persistence is designed, session history should reload; if not, UI should state the limitation clearly. |
-| Prompt suggestions bypass runtime checks | clicking a chip skips validation or source retrieval | Suggested prompts must go through the same processing path as typed input. |
 | Retrieved content is stale or incomplete | data source changed but index not rebuilt | Assistant should not overstate certainty; operational docs should flag index refresh needs. |
 | Unsupported financial advice request | user asks for recommendation rather than explanation | Assistant should stay informational and refuse unsupported advisory behavior. |
 | LLM answers without evidence | model hallucinates fees or policies | Eval and runtime rules should treat unsupported claims as failures. |
@@ -179,7 +175,6 @@ This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pul
 - Ask ambiguous questions.
 - Ask mixed-domain questions.
 - Simulate weak retrieval and verify safe fallback.
-- Refresh during a session and inspect history behavior.
 - Ingest a small scraped corpus with intentional HTML noise; verify normalized chunks and citations after `rebuild_index.py`.
 
 ***
@@ -343,11 +338,15 @@ These are not limited to one phase and should be considered throughout implement
 | One dependency becomes slow but not fully down | Degrade that feature rather than freezing the whole workflow.[1][2] |
 | Retry storm after transient failure | Use bounded retries with backoff and idempotency controls.[2][10] |
 | Large payload inflates prompt/token cost | Truncate, summarize, or reject with guidance rather than sending unbounded context. |
+| Primary **Gemini** or **Groq** key hits **429 / quota / billing** or token limit | Backend transparently **retries once** with **`GEMINI_API_KEY_FALLBACK`** or **`GROQ_API_KEY_FALLBACK`** respectively; logs record provider + tier without secrets. |
+| **Both** primary and fallback keys fail for a provider | Return a clear user-visible degraded response (e.g. cached pulse or “try again later”); alert operators from structured logs. |
+| Wrong or missing **`GEMINI_MODEL`** | Default to **`gemini-2.5-flash`** in config validation; fail fast at startup if an unsupported model string is explicitly set. |
 
 ### UI integrity failures
 
 | Scenario | Expected behavior |
 |---|---|
+| Fee explainer shown on **Product** tab or in **weekly pulse email** as customer-style six-bullet blocks | **Spec violation**; remove or replace with pulse analytics only—fee pattern belongs on **Customer** and **Advisor** booking contexts per `Docs/UserFlow.md`. |
 | Loading spinner never resolves | Timeout, surface localized error, and allow retry. |
 | Success state shown before backend confirmation | Use pending/processing state until backend confirms. |
 | Hidden partial state | Show which panel or action succeeded versus which failed.[3] |
