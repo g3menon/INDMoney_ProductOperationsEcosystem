@@ -22,7 +22,7 @@ The system combines:
 |---|---|---|
 | G1 | **Do not overengineer.** Prefer the simplest implementation that satisfies the current phase. Avoid speculative abstractions, unnecessary frameworks, and future-proofing that is not currently needed. | Build time and token budget are limited. |
 | G2 | **Preserve architecture boundaries.** Frontend handles presentation, backend handles orchestration/domain logic, and external writes happen only through integration services. | Prevents logic sprawl and duplication. |
-| G3 | **Text-first before voice.** Every customer and advisor workflow must work in text mode before voice enhancements are added. | Voice is an adapter, not the primary runtime path. |
+| G3 | **Text-first before voice; full E2E without STT/TTS.** Every customer and advisor workflow must work in **typed text and normal UI** before voice (Phase 8) is required for acceptance. **Phases 1–7** must be testable end-to-end per `Docs/Runbook.md` **End-to-end test (text-only, before voice)** without microphone or TTS. | Voice is an adapter; STT/TTS must not gate validation of core product behavior. |
 | G4 | **Voice is adapter-only.** STT/TTS may transform input/output only; they must not contain business logic, workflow logic, or integration logic. | Ensures parity between text and voice flows. |
 | G5 | **No secrets in code.** All credentials, keys, tokens, model IDs, sheet IDs, sender emails, and integration values must come from environment variables or approved config layers. | Security and deployability. |
 | G6 | **No unnecessary PII in logs, prompts, exports, or analytics.** Only the minimum needed data may be stored or processed. | Reduces privacy risk. |
@@ -38,7 +38,7 @@ The system combines:
 | G16 | **No hidden architecture drift.** New folders, services, or abstractions must align with the documented architecture before they are introduced. | Prevents AI-generated repo sprawl. |
 | G17 | **No hardcoded fallback magic values in production paths.** Default behavior may exist, but fake IDs, fake URLs, fake times, or silent mock fallbacks must not leak into real logic. | Avoids hard-to-find production bugs. |
 | G18 | **Groww Play Store ingestion uses Playwright in server or batch context only.** Do not ship Play Store automation in the Next.js client bundle; pin browser versions in CI; cap concurrency and retries to respect rate limits and provider stability. | Keeps secrets and automation off the public web surface and reduces ban risk. |
-| G19 | **Collected text must pass a normalization layer before chunking or indexing.** Raw Play Store payloads and scraped HTML must be cleaned, deduped, schema-mapped, and policy-filtered before chunks are written to retrieval indexes or pulse tables. | Prevents garbage chunks, duplicate themes, and unstable RAG/pulse quality. |
+| G19 | **Collected text must pass cleaning then normalization before chunking, indexing, or pulse LLM steps.** Raw Play Store payloads and scraped HTML must be stripped of markup/boilerplate (**cleaning**), then deduped, schema-mapped, and policy-filtered (**normalization**) before chunks hit retrieval indexes or before **theme / pulse** generation runs. | Prevents garbage chunks, duplicate themes, and unstable RAG/pulse quality. |
 
 ## UI and UX rules
 
@@ -232,9 +232,9 @@ The system combines:
 | P2.3 | **Subscribe and unsubscribe paths must be explicit and safe.** | Avoid ambiguous subscription state transitions and duplicate subscriptions. |
 | P2.4 | **Product tab must handle loading, empty, partial, and error states.** | No blank or brittle pulse dashboard states. |
 | P2.5 | **Pulse output quality must prioritize actionability over verbosity.** | Keep PM-facing summaries concise, clear, and decision-useful. |
-| P2.6 | **Groww Play Store reviews are ingested via Playwright as a documented job.** | Collect reviws of upto 8 weeks back only, Job writes raw and/or normalized review records suitable for pulse preprocessing; failures are logged with correlation ids. |
-| P2.7 | **Normalization runs before pulse LLM steps.** | Dedupe, spam/low-signal filtering, and PII minimization are applied consistently so Groq/Gemini(2.5 flash) see bounded, clean text, no swear words, only collect reviews in english, no emojis, only use reviws that are more than 20 words, collect reviews that people found most helpful eg "50 people found this review helpful". Have a balance of differently rated reviews. Make sure 4:1 ratio of improvements/issues:positive feedback reviews is maintained |
-| P2.8 | **No PII** | Do not collect any personal information and PII destails like mobile number, Aadhar number or names of the user. Collect review ID for database reference |
+| P2.6 | **Groww Play Store reviews are ingested via Playwright as a documented job.** | Collect reviews up to **8 weeks** lookback only; job writes **raw** records first; failures are logged with correlation IDs. |
+| P2.7 | **Mandatory pulse pipeline after raw collection.** | Do not call theme or pulse LLMs on raw Playwright payloads. Apply **cleaning** then **normalization** (dedupe, spam/low-signal filtering, PII minimization, policy filters per product spec—e.g. English-only, min length, helpfulness weighting, rating balance including **4:1** issues/improvements vs positive sentiment targets where configured) before **theme generation (Groq)** and **pulse generation (Gemini 2.5 Flash)**. Groq/Gemini must only see bounded, cleaned text. |
+| P2.8 | **No PII in collected reviews.** | Do not store reviewer names, phone numbers, Aadhaar, or other PII; store **review_id** (and allowed fields such as device type) for database reference only. |
 
 **Definition of Done**
 - Pulse generation API works.
@@ -242,6 +242,7 @@ The system combines:
 - Pulse history is retrievable.
 - Subscribe and unsubscribe flows work.
 - Groww Play Store review collection and normalization path is demonstrable (manual or scheduled run).
+- One full run demonstrates **cleaning → normalization → theme generation → pulse generation → persisted pulse** (or documented empty-ingestion degraded mode).
 
 ### Phase 3 — Customer text chat foundation
 
@@ -279,7 +280,7 @@ The system combines:
 - Weak retrieval results lead to safe fallback behavior.
 - Grounded response citations and metadata are preserved.
 - At least one MF and one fee source path runs through normalization, chunking, and index rebuild documented in the runbook.
--disclaimers are used wherever necessary according to @ProblemStatement.md
+- Disclaimers are used wherever required by `Docs/ProblemStatement.md` and `Docs/UserFlow.md`.
 
 ### Phase 5 — Booking and customer workflow state
 
@@ -337,6 +338,7 @@ The system combines:
 
 | ID | Rule | Implementation expectation |
 |---|---|---|
+| P8.0 | **Do not require voice to ship Phases 1–7.** | Release and E2E acceptance use the **text-only** checklist in `Docs/Runbook.md` until voice is explicitly in scope. |
 | P8.1 | **Voice reuses the exact same runtime.** | STT output becomes text input to the existing orchestration path. |
 | P8.2 | **No domain logic in voice modules.** | Voice layer does not make booking or approval decisions. |
 | P8.3 | **Voice and chat must show behavior parity.** | Same user intent should produce the same downstream behavior. |
@@ -378,7 +380,7 @@ Before closing any phase, verify at least the following:
 | RAG chat | groundedness, relevance, fallback quality, source fidelity |
 | Fee explainer | factual correctness, clarity, source support, no invented fees |
 | Review / corpus ingestion | Playwright job success rate, parse coverage, normalization drop reasons, dedupe correctness, chunk/index integrity |
-| Weekly Pulse | theme accuracy, quote fidelity, sentiment balance, actionability |
+| Weekly Pulse | pipeline order integrity (clean → normalize → theme → pulse), theme accuracy, quote fidelity, sentiment balance, actionability |
 | Booking flow | state correctness, slot parsing, duplicate prevention, recovery handling |
 | Advisor approval | state transition correctness, idempotency, auditability |
 | Voice | transcript quality, intent parity with text, safe fallback behavior |
@@ -396,3 +398,4 @@ Before closing any phase:
 - [ ] Regression impact has been checked.
 - [ ] Latency impact is acceptable for the phase.
 - [ ] If LLM behavior was introduced or changed, eval coverage was updated.
+- [ ] Before treating **Phase 7** as complete, run **`Docs/Runbook.md` → End-to-end test (text-only, before voice)** through the phases in scope (voice not required).

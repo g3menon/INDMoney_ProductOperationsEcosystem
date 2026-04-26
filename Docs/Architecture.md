@@ -591,8 +591,10 @@ source collection
    ↓
 persist raw artifacts (optional but recommended for reproducibility)
    ↓
+cleaning layer (HTML/boilerplate removal, encoding, whitespace)
+   ↓
 normalization layer
-   - canonical text encoding, whitespace/HTML cleanup
+   - canonical text encoding and residual cleanup
    - dedupe (URL + content hash, near-duplicate collapse where configured)
    - metadata extraction (title, section, effective date, source URL)
    - policy filters (spam, empty, off-topic) and PII minimization
@@ -615,6 +617,7 @@ answer composition
 ### Components
 
 - collect (Playwright Play Store, scrapers, or file-based imports)
+- clean (strip markup/boilerplate; encoding and whitespace)
 - normalize (dedupe, cleanup, schema mapping, policy filters)
 - ingest (write normalized sources and lineage into persistence)
 - chunk
@@ -628,8 +631,8 @@ answer composition
 ### Groww Play Store reviews (Playwright)
 
 - Implement collection as a **dedicated job or script** (for example under `scripts/`) using **Playwright** to load the listing and extract review text, rating, date, and review id where available.
-- Persist **raw** responses or parsed rows before normalization so ingestion can be replayed or diffed when the Play Store UI changes.
-- Run the **normalization layer** before pulse preprocessing or any downstream analytics: dedupe, strip boilerplate, handle multilingual text, and downgrade obvious spam.
+- Persist **raw** responses or parsed rows before **cleaning** so ingestion can be replayed or diffed when the Play Store UI changes.
+- Apply **cleaning** then **normalization** before **theme generation** or **pulse** LLMs: dedupe, policy filters, PII rules, and product-specific text rules live in normalization (see `Docs/Rules.md` P2.7).
 - **Chunking** for reviews is primarily for **pulse / theme extraction** (segmenting long threads or concatenated batches), not necessarily the same chunk boundaries as MF RAG chunks; document which path uses which chunk policy.
 
 ### Scraped MF and fee explainer documents
@@ -728,28 +731,34 @@ Generate a PM-facing pulse summarizing review or issue trends, and optionally se
 
 ### Pulse generation flow
 
+After **raw** data is gathered (Playwright Play Store job and/or other issue inputs), the following steps are **all required** in order before a stored Weekly Pulse is considered valid for PM surfaces (skipping a step is a defect unless an explicit, documented degraded mode is in use):
+
+1. **Persist raw** — append-only or versioned raw payloads for replay and debugging.  
+2. **Cleaning** — strip HTML/markup and boilerplate, normalize encoding and whitespace, remove non-text noise so downstream steps see plain review text.  
+3. **Normalization** — schema mapping to internal review rows, dedupe, language and length policy, spam/low-signal filtering, helpfulness/rating balance rules, PII minimization (see `Docs/Rules.md` Phase 2).  
+4. **Optional chunking / segmentation** — only when needed for very long reviews or batched inputs (pulse preprocessing; not the MF RAG chunk index).  
+5. **Theme generation** — Groq-backed preprocessing, clustering / theme extraction, and candidate quote selection from **normalized** text only.  
+6. **Pulse generation** — Gemini (**`gemini-2.5-flash`**) synthesis: final narrative, actions, and structured pulse payload; validate against schema before persist.  
+7. **Store and render** — write `weekly_pulses` (or equivalent), then Product tab and APIs read that record.
+
 ```text
-Groww Play Store reviews (Playwright collection) and/or other issue inputs
+Raw collection (Playwright / other)
    ↓
-persist raw payloads (immutable or versioned) for audit/debug
+persist raw (audit / replay)
    ↓
-normalization layer (dedupe, language detection, spam/low-signal filtering, PII scrubbing, schema mapping)
+cleaning (HTML → text, encoding, whitespace)
    ↓
-optional chunking / segmentation for long reviews (pulse preprocessing, not RAG retrieval)
+normalization (dedupe, policy, schema, PII, language, balance rules)
    ↓
-Groq preprocessing
+optional chunk / segment for pulse input only
    ↓
-theme extraction
+Groq: preprocessing + theme extraction + quote candidates
    ↓
-quote selection candidate generation
+Gemini 2.5 Flash: pulse synthesis + structured output
    ↓
-Gemini synthesis
+validate → store weekly pulse → Product tab / APIs
    ↓
-store weekly pulse
-   ↓
-render in Product tab
-   ↓
-optional scheduled email send
+optional scheduled email send (Phase 7+)
 ```
 
 ### Weekly send flow
@@ -1347,7 +1356,7 @@ Use one subfolder per phase (recommended):
 - pulse APIs
 - Product tab UI
 - subscribe / unsubscribe
-- **Groww Play Store** review collection job using **Playwright**; persist raw → **normalization** → optional **chunking/segmentation** for pulse input; store in `reviews_raw` (or equivalent) before Groq/Gemini pulse pipeline
+- **Groww Play Store** review collection job using **Playwright**; then mandatory chain: **persist raw → cleaning → normalization** → optional **chunking/segmentation** for pulse input → persist cleaned rows in `reviews_raw` (or equivalent) → **theme generation (Groq)** → **pulse generation (Gemini 2.5 Flash)** → persist `weekly_pulses`
 
 ### Phase 3
 
@@ -1401,6 +1410,16 @@ Use one subfolder per phase (recommended):
 
 ---
 
+## End-to-end acceptance before voice (STT/TTS)
+
+Phases **1 through 7** are the **complete functional product** for validation: dashboard, pulse (with full **raw → cleaning → normalization → theme → pulse** pipeline), customer text chat and RAG, booking, advisor approval, and OAuth-backed Gmail/Calendar/Sheets/scheduler where applicable.
+
+- **STT/TTS (Phase 8)** is **additive**: it must not be a prerequisite to run end-to-end tests of Phases 1–7.  
+- Acceptance: every workflow in `Docs/UserFlow.md` must be exercisable using **typed text and UI actions** alone (plus normal HTTP APIs), with the same backend state transitions as the future voice path.  
+- Use **`Docs/Runbook.md` → End-to-end test (text-only, before voice)** as the authoritative checklist before enabling voice in production.
+
+---
+
 ## Cursor implementation rules
 
 - implement one phase at a time
@@ -1418,6 +1437,7 @@ Use one subfolder per phase (recommended):
 - keep Sheets optional and downstream
 - prefer small, testable services
 - avoid broad refactors unless explicitly requested
+- **validate the full Phase 1–7 path in text-only mode** before relying on Phase 8 voice; voice adapters must call the same APIs as typed chat
 
 ---
 

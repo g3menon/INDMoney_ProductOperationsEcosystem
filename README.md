@@ -6,3 +6,4 @@ Single-repo dashboard (Next.js + FastAPI + Supabase) for **Groww** product opera
 - **Implementation rules:** `Docs/Rules.md`  
 - **Canonical URLs & Playwright rules:** `Deliverables/Resources.md`  
 - **Ops:** `Docs/Runbook.md`  
+- **Full E2E without voice:** use **End-to-end test (text-only, before voice / Phase 8)** in the runbook before depending on STT/TTS.

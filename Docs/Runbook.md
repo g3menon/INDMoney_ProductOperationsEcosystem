@@ -105,7 +105,7 @@ Use this when refreshing **Weekly Pulse** inputs or **RAG** MF/fee indexes.
    - Spot-check one retrieved chunk in dev: no raw HTML, citation metadata present.
 
 4. **Pulse**  
-   - Run pulse generation only after review ingestion + normalization succeeded for the intended window, or explicitly accept an empty-ingestion degraded mode.
+   - Run pulse generation only after the full chain succeeded for the intended window: **raw persist → cleaning → normalization** → (optional chunk) → **theme generation (Groq)** → **pulse generation (Gemini)** → validate → store. Or explicitly accept an **empty-ingestion** degraded mode documented in logs.
 
 ### Production
 1. Confirm Render env vars are correct.
@@ -131,6 +131,28 @@ Run this after major changes or deploys.
 - [ ] Groww Play Store ingestion path works (or documented skip) when pulse inputs changed.
 - [ ] One integration path works if affected.
 - [ ] Scheduler/manual trigger works if affected.
+
+## End-to-end test (text-only, before voice / Phase 8)
+
+Use this checklist to validate **the whole implementation through Phase 7** without STT/TTS. Voice (Phase 8) is optional and must not block sign-off on core product behavior.
+
+**Prerequisites**
+
+- Local or staging env matches `Docs/Architecture.md` and `.env.example` (including **primary + fallback** LLM keys if generation paths are enabled).
+- `playwright install` (or equivalent) done if you run Groww Play Store collection locally.
+
+**Ordered checks (text and UI only)**
+
+1. **Phase 1–style connectivity:** frontend loads; backend health; badges (or stub) respond; Supabase connectivity as designed; CORS/preflight OK for `localhost:3000` → `localhost:8000`.
+2. **Pulse data path:** run Playwright collection (or inject fixture raw batch) → confirm **cleaning** and **normalization** job logs → confirm **theme** step then **pulse** step produce one valid `weekly_pulses` row → Product tab shows current pulse and history where implemented.
+3. **Customer text chat:** typed message and prompt chips; session/history; MF + fee + hybrid answers with citations (no microphone).
+4. **Booking:** create booking from text flow; copy booking ID; cancel by ID; states visible on Customer UI.
+5. **Advisor:** pending/upcoming lists; approve/reject; confirmation path matches `Docs/UserFlow.md` (text-only).
+6. **Integrations (when Phase 7 is in scope):** one Gmail/Calendar path in dev or staging; scheduler manual trigger idempotent; fallback keys exercised once under forced primary quota if possible.
+
+**Recording**
+
+- Capture results under `Deliverables/Evals/` for the highest phase covered (per architecture quality gate).
 
 ## Main incident checks
 

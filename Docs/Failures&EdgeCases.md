@@ -24,7 +24,7 @@ These principles apply to all phases:
 
 ## Data collection, normalization, chunking, and indexing (Groww)
 
-This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pulse) and **Phase 4** (scraped MF/fee and other docs → RAG). Play Store ingestion uses **Playwright**; MF/fee content uses approved scrapers or imports. Both paths must persist or archive **raw** output where practical, then apply a **normalization layer** before **chunking** and downstream use (pulse preprocessing or BM25/embedding indexes).
+This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pulse) and **Phase 4** (scraped MF/fee and other docs → RAG). Play Store ingestion uses **Playwright**; MF/fee content uses approved scrapers or imports. Both paths must persist or archive **raw** output where practical, then apply **cleaning** and **normalization** before **chunking** and downstream use (pulse preprocessing or BM25/embedding indexes). For Weekly Pulse specifically, **theme generation** and **pulse generation** LLM steps must run only after that cleaned + normalized stage (see `Docs/Architecture.md` Weekly pulse architecture).
 
 ### Failures and edge cases
 
@@ -41,6 +41,8 @@ This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pul
 | Index rebuild after scrape | `rebuild_index.py` run twice concurrently | Job locking or idempotent rebuild; no duplicate chunk rows tied to same source version. |
 | MF/fee scraper robots or policy violation | site returns 403 or ToS block | Stop collection; log legal/ops notice; do not bypass with deceptive headers; fallback to manual import if allowed. |
 | Stale RAG index | sources updated but index not rebuilt | Assistant lowers certainty or ops banner flags stale corpus; runbook lists rebuild cadence. |
+| Pulse built from raw or partially cleaned text | theme/Groq step reads HTML or pre-policy reviews | **Invalid pipeline**; block publish; rerun from **cleaning → normalization** before theme and pulse LLMs. |
+| Theme or pulse skipped while UI shows a pulse | shortcut that writes placeholder pulse | Forbidden unless explicit degraded mode is documented; Product tab must show `degraded` or last good pulse with reason. |
 
 ### Manual checks
 
@@ -48,6 +50,7 @@ This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pul
 - Ingest batch with duplicates and near-duplicates; verify dedupe behavior.
 - Run normalization on noisy HTML; confirm no raw tags in stored chunks.
 - Run concurrent index rebuilds; verify single consistent index state.
+- For pulse: verify logs or job metadata show **cleaning → normalization → theme → pulse** ordering for one batch.
 
 ***
 

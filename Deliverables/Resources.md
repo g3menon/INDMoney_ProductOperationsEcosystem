@@ -2,6 +2,8 @@
 
 Use this file as the **single list of URLs and collection rules** referenced from `Docs/Architecture.md`, `Docs/Runbook.md`, and `Docs/UI.md`. Do not auto-construct Groww fund URLs from display names; slugs drift after rebranding.
 
+**Weekly Pulse from Play Store (order):** raw Playwright capture → persist raw → **cleaning** → **normalization** → (optional segment) → **theme generation (Groq)** → **pulse generation (Gemini 2.5 Flash)** → validate → store. See `Docs/Architecture.md` (Weekly pulse architecture).
+
 ## Groww — Google Play Store (Playwright)
 
 - **Listing (reviews):** https://play.google.com/store/apps/details?id=com.nextbillion.groww&hl=en_IN  
