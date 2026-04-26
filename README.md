@@ -14,3 +14,72 @@ Single-repo dashboard (Next.js + FastAPI + Supabase) for **Groww** product opera
 2. From `backend/`: `python -m pip install -r requirements.txt` then `uvicorn app.main:app --reload --port 8000`.
 3. From `frontend/`: set `NEXT_PUBLIC_API_BASE_URL` (e.g. `http://127.0.0.1:8000`), then `npm install` and `npm run dev`.
 4. Phase 1 evals: from `backend/`, `python -m app.evals.run_all --phase 1` (must score **≥ 85%**; default fixture env is embedded for CI-style runs).
+
+## Local setup (Windows PowerShell) — Phase 1 + Phase 2
+
+### 0) Apply Supabase schema (one-time per project)
+
+- In Supabase SQL editor, run: `infra/supabase/phase1_phase2_schema.sql`
+
+### 1) Create `.env`
+
+Copy `.env.example` → `.env` and fill at minimum:
+
+- Backend: `APP_ENV`, `FRONTEND_BASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `DEFAULT_TIMEZONE`
+- Frontend: `NEXT_PUBLIC_API_BASE_URL` (and optionally Supabase public vars for later phases)
+
+### 2) Start backend
+
+```powershell
+cd backend
+python -m pip install -r requirements.txt
+uvicorn app.main:app --reload --port 8000
+```
+
+Smoke:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/dashboard/badges
+```
+
+### 3) Start frontend
+
+```powershell
+cd ..\frontend
+npm install
+$env:NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8000"
+npm run dev
+```
+
+### 4) Run Play Store collector (Phase 2)
+
+```powershell
+cd ..
+cd backend
+python -m playwright install chromium
+cd ..
+python scripts\fetch_groww_playstore_reviews.py --limit 50 --out reviews_raw.json
+```
+
+### 5) Ingest raw JSON into Supabase (Phase 2)
+
+```powershell
+python scripts\ingest_sources.py --in reviews_raw.json
+```
+
+### 6) Generate pulse from real ingested data (Phase 2)
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/api/v1/pulse/generate -ContentType application/json -Body '{"use_fixture":false,"lookback_weeks":8}'
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/pulse/current
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/pulse/history?limit=10
+```
+
+### 7) Run automated evals
+
+```powershell
+cd backend
+python -m app.evals.run_all --phase 1
+python -m app.evals.run_all --phase 2
+```

@@ -27,6 +27,8 @@ class PulseRepository(Protocol):
 
     async def get_pulse_history(self, limit: int = 20) -> list[WeeklyPulse]: ...
 
+    async def get_recent_normalized_reviews(self, lookback_weeks: int, limit: int = 500) -> list[NormalizedReview]: ...
+
 
 @dataclass
 class InMemoryPulseRepository:
@@ -56,6 +58,10 @@ class InMemoryPulseRepository:
 
     async def get_pulse_history(self, limit: int = 20) -> list[WeeklyPulse]:
         return list(self.pulses[:limit])
+
+    async def get_recent_normalized_reviews(self, lookback_weeks: int, limit: int = 500) -> list[NormalizedReview]:
+        # In memory mode: return latest normalized (already ordered by append time).
+        return list(self.normalized[-limit:])
 
 
 class SupabasePulseRepository:
@@ -103,6 +109,17 @@ class SupabasePulseRepository:
             .execute()
         )
         return [WeeklyPulse.model_validate(r) for r in (res.data or [])]
+
+    async def get_recent_normalized_reviews(self, lookback_weeks: int, limit: int = 500) -> list[NormalizedReview]:
+        # Prefer normalized_at filter (UTC).
+        res = (
+            self._client.table("reviews_normalized")
+            .select("*")
+            .order("normalized_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return [NormalizedReview.model_validate(r) for r in (res.data or [])]
 
 
 _MEM_REPO: InMemoryPulseRepository | None = None

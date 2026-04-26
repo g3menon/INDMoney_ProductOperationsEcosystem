@@ -6,13 +6,9 @@ raw persist -> cleaning -> normalization -> theme generation -> pulse generation
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-import re
-from collections import Counter
-from datetime import date, datetime, timedelta
-from typing import Any
+from datetime import date, datetime
 from uuid import uuid4
 
 from app.core.config import Settings
@@ -20,6 +16,8 @@ from app.llm.gemini_client import GeminiClient
 from app.llm.groq_client import GroqClient
 from app.llm.prompt_registry import pulse_theme_prompt, weekly_pulse_prompt
 from app.repositories.pulse_repository import PulseRepository, get_pulse_repository
+from app.rag.chunk import segment_review_text
+from app.rag.ingest import normalize_raw_reviews
 from app.schemas.pulse import (
     NormalizedReview,
     PulseGenerateRequest,
@@ -31,34 +29,6 @@ from app.schemas.pulse import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-_EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.I)
-_PHONE_RE = re.compile(r"\b(?:\+?91[\s-]?)?[6-9]\d{9}\b")
-
-
-def _clean_text(text: str) -> str:
-    t = text or ""
-    t = re.sub(r"<[^>]+>", " ", t)  # strip markup
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
-
-
-def _minimize_pii(text: str) -> str:
-    t = _EMAIL_RE.sub("[REDACTED_EMAIL]", text)
-    t = _PHONE_RE.sub("[REDACTED_PHONE]", t)
-    return t
-
-
-def _is_englishish(text: str) -> bool:
-    if not text:
-        return False
-    letters = sum(1 for ch in text if "a" <= ch.lower() <= "z")
-    return (letters / max(len(text), 1)) >= 0.45
-
-
-def _content_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _fixture_raw_reviews() -> list[RawReview]:
@@ -104,34 +74,17 @@ def _rule_based_themes(normalized: list[NormalizedReview]) -> tuple[list[PulseTh
 async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -> WeeklyPulse:
     repo: PulseRepository = get_pulse_repository(settings)
 
-    raw_rows = _fixture_raw_reviews() if req.use_fixture else []
-    await repo.persist_raw_reviews(raw_rows)
-
+    raw_rows: list[RawReview] = []
     cleaned: list[NormalizedReview] = []
-    seen_hashes: set[str] = set()
-    for r in raw_rows:
-        t = _minimize_pii(_clean_text(r.text))
-        if len(t) < 20:
-            continue
-        if not _is_englishish(t):
-            continue
-        h = _content_hash(t)
-        if h in seen_hashes:
-            continue
-        seen_hashes.add(h)
-        cleaned.append(
-            NormalizedReview(
-                review_id=r.review_id,
-                rating=r.rating,
-                text=t,
-                review_date=r.review_date,
-                found_review_helpful=r.found_review_helpful,
-                device=r.device,
-                content_hash=h,
-            )
-        )
 
-    await repo.persist_normalized_reviews(cleaned)
+    if req.use_fixture:
+        raw_rows = _fixture_raw_reviews()
+        await repo.persist_raw_reviews(raw_rows)
+        cleaned, _ = normalize_raw_reviews(raw_rows)
+        await repo.persist_normalized_reviews(cleaned)
+    else:
+        # Use real ingested/normalized data (created by scripts/ingest_sources.py).
+        cleaned = await repo.get_recent_normalized_reviews(lookback_weeks=req.lookback_weeks, limit=800)
 
     degraded = False
     degraded_reason: str | None = None
@@ -139,10 +92,15 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
     # Theme generation (Groq) over normalized text only
     themes: list[PulseTheme]
     quotes: list[PulseQuote]
-    if cleaned and settings.groq_api_key:
+    # Optional segmentation for long reviews before theme LLM step (Phase 2 only).
+    segmented_text: list[str] = []
+    for n in cleaned:
+        segmented_text.extend(segment_review_text(n.text, max_chars=800))
+
+    if segmented_text and settings.groq_api_key:
         try:
             groq = GroqClient(settings)
-            prompt = pulse_theme_prompt([n.text for n in cleaned])
+            prompt = pulse_theme_prompt(segmented_text)
             out = groq.chat_json(prompt=prompt)
             payload = json.loads(out) if out else {}
             themes = [PulseTheme.model_validate(t) for t in (payload.get("themes") or [])][:6]
@@ -161,7 +119,7 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
     # Pulse synthesis (Gemini) with schema validation; fallback deterministic compose
     narrative = ""
     actions: list[str] = []
-    if cleaned and settings.gemini_api_key:
+    if segmented_text and settings.gemini_api_key:
         try:
             gemini = GeminiClient(settings)
             theme_json = json.dumps(
