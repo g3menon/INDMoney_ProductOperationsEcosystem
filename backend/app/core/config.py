@@ -18,22 +18,26 @@ class Settings(BaseSettings):
     """App configuration. Secrets must never appear in logs or API responses (P1.4)."""
 
     model_config = SettingsConfigDict(
-        env_file=(".env",),
+        # Support running from repo root or from `backend/` on Windows.
+        # - If cwd is repo root: `.env` works.
+        # - If cwd is `backend/`: `../.env` works.
+        env_file=(".env", "../.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
-    app_env: str = Field(validation_alias=AliasChoices("APP_ENV"))
+    app_env: str | None = Field(default=None, validation_alias=AliasChoices("APP_ENV"))
     log_level: str = Field(default="info", validation_alias=AliasChoices("LOG_LEVEL"))
 
     api_base_url: str = Field(
         default="http://127.0.0.1:8000",
         validation_alias=AliasChoices("API_BASE_URL"),
     )
-    frontend_base_url: str = Field(validation_alias=AliasChoices("FRONTEND_BASE_URL"))
+    frontend_base_url: str | None = Field(default=None, validation_alias=AliasChoices("FRONTEND_BASE_URL"))
 
-    supabase_url: str = Field(validation_alias=AliasChoices("SUPABASE_URL"))
-    supabase_service_role_key: str = Field(
+    supabase_url: str | None = Field(default=None, validation_alias=AliasChoices("SUPABASE_URL"))
+    supabase_service_role_key: str | None = Field(
+        default=None,
         validation_alias=AliasChoices("SUPABASE_SERVICE_ROLE_KEY"),
     )
     supabase_anon_key: str | None = Field(
@@ -80,13 +84,16 @@ class Settings(BaseSettings):
             missing.append("SUPABASE_SERVICE_ROLE_KEY")
         if missing:
             raise ValueError(
-                "Missing required environment variables for Phase 1: " + ", ".join(missing),
+                "Missing required environment variables for Phase 1/2: "
+                + ", ".join(missing)
+                + ". Ensure your `.env` is either in repo root or in `backend/`, "
+                + "or export the variables in your shell before starting the backend.",
             )
         return self
 
     def cors_origins(self) -> list[str]:
         """Allow one or more frontend origins (comma-separated)."""
-        return _split_origins(self.frontend_base_url)
+        return _split_origins(self.frontend_base_url or "")
 
     def safe_public_dict(self) -> dict[str, Any]:
         """Serializable snapshot for health/debug: no secrets (P1.4)."""
