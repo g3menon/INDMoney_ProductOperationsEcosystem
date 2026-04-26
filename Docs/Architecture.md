@@ -1356,7 +1356,7 @@ Use one subfolder per phase (recommended):
 - pulse APIs
 - Product tab UI
 - subscribe / unsubscribe
-- **Groww Play Store** review collection job using **Playwright**; then mandatory chain: **persist raw → cleaning → normalization** → optional **chunking/segmentation** for pulse input → persist cleaned rows in `reviews_raw` (or equivalent) → **theme generation (Groq)** → **pulse generation (Gemini 2.5 Flash)** → persist `weekly_pulses`
+- **Groww Play Store** review collection job using **Playwright** COLLECT ONLY 200 REVIEWS; then mandatory chain: **persist raw → cleaning → normalization** → optional **chunking/segmentation** for pulse input → persist cleaned rows in `reviews_raw` (or equivalent) → **theme generation (Groq)** → **pulse generation (Gemini 2.5 Flash)** → persist `weekly_pulses`
 
 ### Phase 3
 

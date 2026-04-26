@@ -1,0 +1,46 @@
+"""Groq client wrapper with primary/fallback key (R10)."""
+
+from __future__ import annotations
+
+import logging
+
+from groq import Groq
+
+from app.core.config import Settings
+
+logger = logging.getLogger(__name__)
+
+
+class GroqClient:
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    def _client(self, tier: str) -> Groq:
+        key = self._settings.groq_api_key if tier == "primary" else self._settings.groq_api_key_fallback
+        if not key:
+            raise RuntimeError(f"groq_api_key_missing_{tier}")
+        return Groq(api_key=key)
+
+    def chat_json(self, prompt: str, model: str = "llama-3.1-70b-versatile") -> str:
+        """One retry on key-specific failures (quota/rate/billing) to fallback tier."""
+        try:
+            c = self._client("primary")
+            resp = c.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+            )
+            return resp.choices[0].message.content or ""
+        except Exception as exc:
+            msg = str(exc).lower()
+            key_specific = any(s in msg for s in ("rate", "quota", "billing", "exhaust", "429"))
+            if not key_specific:
+                raise
+            logger.warning("groq_primary_failed_try_fallback", extra={"correlation_id": "-"})
+            c = self._client("fallback")
+            resp = c.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+            )
+            return resp.choices[0].message.content or ""

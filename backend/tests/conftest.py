@@ -15,6 +15,7 @@ def _test_env() -> None:
     os.environ["SUPABASE_URL"] = "https://example.supabase.co"
     os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "test-service-role-key"
     os.environ["PHASE1_SKIP_SUPABASE_STARTUP_CHECK"] = "true"
+    os.environ["PULSE_STORAGE_MODE"] = "memory"
     from app.core.config import clear_settings_cache
 
     clear_settings_cache()
