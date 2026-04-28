@@ -1,0 +1,34 @@
+{
+  "version": "phase2-v1",
+  "total_weight": 100.0,
+  "earned_weight": 100.0,
+  "score": 100.0,
+  "checks": [
+    {
+      "id": "pulse_generate_fixture",
+      "weight": 35.0,
+      "passed": true
+    },
+    {
+      "id": "pulse_current",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "pulse_history",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "subscribe_unsubscribe",
+      "weight": 25.0,
+      "passed": true
+    },
+    {
+      "id": "openapi_pulse_paths",
+      "weight": 20.0,
+      "passed": true
+    }
+  ],
+  "generated_at": "2026-04-28T10:25:17.953589+00:00"
+}

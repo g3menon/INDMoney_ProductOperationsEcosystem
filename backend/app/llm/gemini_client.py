@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import google.generativeai as genai
@@ -37,3 +38,6 @@ class GeminiClient:
             model = genai.GenerativeModel(self._settings.gemini_model)
             resp = model.generate_content(prompt)
             return (resp.text or "").strip()
+
+    async def generate_text_async(self, prompt: str) -> str:
+        return await asyncio.to_thread(self.generate_text, prompt)

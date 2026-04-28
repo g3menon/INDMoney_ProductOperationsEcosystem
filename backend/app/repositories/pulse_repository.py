@@ -5,9 +5,10 @@ Phase 2 uses an in-memory repository for tests/evals and Supabase for real runs.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Protocol
 
 from supabase import Client, create_client
@@ -73,52 +74,51 @@ class SupabasePulseRepository:
         if not rows:
             return 0
         payload = [r.model_dump() for r in rows]
-        res = self._client.table("reviews_raw").insert(payload).execute()
+        res = await asyncio.to_thread(lambda: self._client.table("reviews_raw").insert(payload).execute())
         return len(res.data or payload)
 
     async def persist_normalized_reviews(self, rows: list[NormalizedReview]) -> int:
         if not rows:
             return 0
         payload = [r.model_dump() for r in rows]
-        res = self._client.table("reviews_normalized").upsert(payload, on_conflict="review_id").execute()
+        res = await asyncio.to_thread(
+            lambda: self._client.table("reviews_normalized").upsert(payload, on_conflict="review_id").execute()
+        )
         return len(res.data or payload)
 
     async def create_weekly_pulse(self, pulse: WeeklyPulse) -> WeeklyPulse:
         payload = pulse.model_dump()
-        self._client.table("weekly_pulses").insert(payload).execute()
+        await asyncio.to_thread(lambda: self._client.table("weekly_pulses").insert(payload).execute())
         return pulse
 
     async def get_current_pulse(self) -> WeeklyPulse | None:
-        res = (
-            self._client.table("weekly_pulses")
-            .select("*")
-            .order("created_at", desc=True)
-            .limit(1)
-            .execute()
+        res = await asyncio.to_thread(
+            lambda: self._client.table("weekly_pulses").select("*").order("created_at", desc=True).limit(1).execute()
         )
         if not res.data:
             return None
         return WeeklyPulse.model_validate(res.data[0])
 
     async def get_pulse_history(self, limit: int = 20) -> list[WeeklyPulse]:
-        res = (
-            self._client.table("weekly_pulses")
-            .select("*")
-            .order("created_at", desc=True)
-            .limit(limit)
-            .execute()
+        res = await asyncio.to_thread(
+            lambda: self._client.table("weekly_pulses").select("*").order("created_at", desc=True).limit(limit).execute()
         )
         return [WeeklyPulse.model_validate(r) for r in (res.data or [])]
 
     async def get_recent_normalized_reviews(self, lookback_weeks: int, limit: int = 500) -> list[NormalizedReview]:
         # Prefer normalized_at filter (UTC).
-        res = (
-            self._client.table("reviews_normalized")
-            .select("*")
-            .order("normalized_at", desc=True)
-            .limit(limit)
-            .execute()
-        )
+        cutoff_iso = (datetime.utcnow() - timedelta(weeks=lookback_weeks)).isoformat()
+        def _run() -> Any:
+            return (
+                self._client.table("reviews_normalized")
+                .select("*")
+                .gte("normalized_at", cutoff_iso)
+                .order("normalized_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+
+        res = await asyncio.to_thread(_run)
         return [NormalizedReview.model_validate(r) for r in (res.data or [])]
 
 

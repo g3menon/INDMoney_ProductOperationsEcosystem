@@ -126,7 +126,7 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
                 {"themes": [t.model_dump() for t in themes], "quotes": [q.model_dump() for q in quotes]},
                 ensure_ascii=False,
             )
-            out = gemini.generate_text(weekly_pulse_prompt(theme_json))
+            out = await gemini.generate_text_async(weekly_pulse_prompt(theme_json))
             payload = json.loads(out) if out and out.strip().startswith("{") else {}
             narrative = str(payload.get("narrative") or "").strip()
             actions = [str(a) for a in (payload.get("recommended_actions") or [])][:6]

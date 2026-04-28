@@ -3,8 +3,16 @@
 .env.*
 !.env.example
 
+# Python
+__pycache__/
+*.pyc
+
 # Node / Next.js
 node_modules/
 .next/
 out/
 dist/
+
+# Data artifacts
+reviews_raw*.json
+scripts/reviews_raw.json
