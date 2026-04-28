@@ -59,7 +59,7 @@ cd ..
 cd backend
 python -m playwright install chromium
 cd ..
-python scripts\fetch_groww_playstore_reviews.py --limit 50 --out reviews_raw.json
+python scripts\fetch_groww_playstore_reviews.py --limit 200 --out reviews_raw.json
 ```
 
 ### 5) Ingest raw JSON into Supabase (Phase 2)

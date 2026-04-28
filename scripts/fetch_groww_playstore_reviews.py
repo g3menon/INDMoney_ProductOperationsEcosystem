@@ -7,7 +7,7 @@ Rules:
 - Persist raw records first, then run cleaning/normalization before any LLM step.
 
 Usage (local):
-  python scripts/fetch_groww_playstore_reviews.py --limit 50 --out reviews_raw.json
+  python scripts/fetch_groww_playstore_reviews.py --limit 200 --out reviews_raw.json
 """
 
 from __future__ import annotations
@@ -96,8 +96,55 @@ def _collect_from_card(card) -> dict[str, Any] | None:
     }
 
 
+def _find_scroll_target(page, root):
+    # Play Store reviews are usually inside a nested scrollable element (not always the dialog node itself).
+    candidates = [
+        "div[role='dialog'] .fysCi",
+        "div[role='dialog'] .DWPxHb",
+        "div[role='dialog'] .PfaPzd",
+        "div[role='dialog']",
+    ]
+    for sel in candidates:
+        loc = page.locator(sel).first
+        try:
+            if loc.count() > 0 and loc.is_visible():
+                return loc
+        except Exception:
+            continue
+    return root
+
+
+def _scroll_and_wait(page, scroll_target) -> None:
+    # Try several scroll gestures because Play Store review overlays drift often.
+    try:
+        scroll_target.evaluate(
+            "(el) => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event('scroll')); }"
+        )
+    except Exception:
+        pass
+    try:
+        scroll_target.evaluate("(el) => { el.scrollBy(0, Math.max(1800, el.clientHeight * 2)); }")
+    except Exception:
+        pass
+    try:
+        page.mouse.wheel(0, 9000)
+    except Exception:
+        pass
+    try:
+        page.keyboard.press("End")
+    except Exception:
+        pass
+    page.wait_for_timeout(1800)
+
+
 def collect_reviews(limit: int = 50) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    no_progress_attempts = 0
+    max_no_progress_attempts = 8
+    iteration = 0
+
+    _log(f"Requested limit={limit}")
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(viewport={"width": 1280, "height": 800})
@@ -151,31 +198,21 @@ def collect_reviews(limit: int = 50) -> list[dict[str, Any]]:
                 except Exception:
                     continue
 
-        # Scroll multiple times to load more cards.
-        for i in range(1, 10):
-            # Log candidate counts (use first selector for baseline).
-            try:
-                baseline = root.locator(card_selectors[0]).count()
-            except Exception:
-                baseline = 0
-            _log(f"Scroll pass {i}/9: baseline candidate cards={baseline}")
+        scroll_target = _find_scroll_target(page, root)
 
+        # Keep loading until limit reached or repeated no-progress indicates exhaustion.
+        while len(rows) < limit and no_progress_attempts < max_no_progress_attempts:
+            iteration += 1
             _expand_more()
 
-            # Scroll the dialog container if we have one, else scroll page.
-            try:
-                if root is dialog:
-                    dialog.evaluate("(el) => el.scrollBy(0, el.scrollHeight)")
-                else:
-                    page.mouse.wheel(0, 6000)
-            except Exception:
-                try:
-                    page.mouse.wheel(0, 6000)
-                except Exception:
-                    pass
-            page.wait_for_timeout(1200)
+            before_count = len(rows)
 
-            # Attempt extraction each pass, stop once limit met.
+            # Apply several scroll strategies to trigger lazy loading reliably.
+            _scroll_and_wait(page, scroll_target)
+            _expand_more()
+            page.wait_for_timeout(700)
+
+            # Re-parse cards after every load attempt.
             candidates = []
             sel = card_selectors[0]
             try:
@@ -190,9 +227,17 @@ def collect_reviews(limit: int = 50) -> list[dict[str, Any]]:
                     candidates = []
 
             if not candidates:
+                no_progress_attempts += 1
+                _log(
+                    f"iter={iteration}: no candidate cards, collected={len(rows)}, "
+                    f"no_progress={no_progress_attempts}/{max_no_progress_attempts}"
+                )
                 continue
 
-            _log(f"Found {len(candidates)} candidates using selector: {sel}")
+            _log(
+                f"iter={iteration}: found {len(candidates)} cards via {sel}, "
+                f"collected={len(rows)}, no_progress={no_progress_attempts}/{max_no_progress_attempts}"
+            )
             for card in candidates[: min(len(candidates), limit * 6)]:
                 if len(rows) >= limit:
                     break
@@ -203,16 +248,30 @@ def collect_reviews(limit: int = 50) -> list[dict[str, Any]]:
                 if not row:
                     continue
                 # Dedupe by review_id
-                if any(r["review_id"] == row["review_id"] for r in rows):
+                rid = str(row.get("review_id", ""))
+                if not rid:
                     continue
+                if rid in seen_ids:
+                    continue
+                seen_ids.add(rid)
                 rows.append(row)
 
-            if len(rows) >= limit:
-                break
+            if len(rows) > before_count:
+                no_progress_attempts = 0
+                _log(f"iter={iteration}: progress {before_count} -> {len(rows)}")
+            else:
+                no_progress_attempts += 1
+                _log(
+                    f"iter={iteration}: no new rows, collected={len(rows)}, "
+                    f"no_progress={no_progress_attempts}/{max_no_progress_attempts}"
+                )
 
         browser.close()
 
-    _log(f"Collected {len(rows)} reviews.")
+    rows = rows[:limit]
+    _log(f"Collected {len(rows)} reviews (requested={limit}).")
+    if len(rows) < limit:
+        _log(f"Only {len(rows)} reviews available/retrievable; target was {limit}.")
     if len(rows) == 0:
         raise RuntimeError(
             "Zero reviews collected. Play Store DOM selectors likely changed. "
