@@ -13,6 +13,6 @@ node_modules/
 out/
 dist/
 
-# Data artifacts
+# Data artifacts — raw collection outputs (never commit review data)
 reviews_raw*.json
 scripts/reviews_raw.json

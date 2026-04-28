@@ -7,6 +7,7 @@ import logging
 from groq import Groq
 
 from app.core.config import Settings
+from app.core.context import correlation_id as _cid_var
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ class GroqClient:
             key_specific = any(s in msg for s in ("rate", "quota", "billing", "exhaust", "429"))
             if not key_specific:
                 raise
-            logger.warning("groq_primary_failed_try_fallback", extra={"correlation_id": "-"})
+            logger.warning("groq_primary_failed_try_fallback", extra={"correlation_id": _cid_var.get()})
             c = self._client("fallback")
             resp = c.chat.completions.create(
                 model=model,

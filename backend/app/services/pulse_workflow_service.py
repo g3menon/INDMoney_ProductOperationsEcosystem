@@ -12,6 +12,8 @@ from datetime import date, datetime
 from uuid import uuid4
 
 from app.core.config import Settings
+from app.core.context import correlation_id as _cid_var
+from fastapi import HTTPException
 from app.llm.gemini_client import GeminiClient
 from app.llm.groq_client import GroqClient
 from app.llm.prompt_registry import pulse_theme_prompt, weekly_pulse_prompt
@@ -80,11 +82,25 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
     if req.use_fixture:
         raw_rows = _fixture_raw_reviews()
         await repo.persist_raw_reviews(raw_rows)
+        logger.info(
+            "pipeline_stage raw_persisted",
+            extra={"stage": "raw_persisted", "count": len(raw_rows), "correlation_id": _cid_var.get()},
+        )
         cleaned, _ = normalize_raw_reviews(raw_rows)
         await repo.persist_normalized_reviews(cleaned)
+        logger.info(
+            "pipeline_stage normalized_persisted",
+            extra={"stage": "normalized_persisted", "count": len(cleaned), "correlation_id": _cid_var.get()},
+        )
     else:
         # Use real ingested/normalized data (created by scripts/ingest_sources.py).
         cleaned = await repo.get_recent_normalized_reviews(lookback_weeks=req.lookback_weeks, limit=800)
+        if not cleaned:
+            raise HTTPException(status_code=424, detail="no_normalized_reviews_available")
+        logger.info(
+            "pipeline_stage normalized_persisted",
+            extra={"stage": "normalized_persisted", "count": len(cleaned), "correlation_id": _cid_var.get()},
+        )
 
     degraded = False
     degraded_reason: str | None = None
@@ -96,6 +112,8 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
     segmented_text: list[str] = []
     for n in cleaned:
         segmented_text.extend(segment_review_text(n.text, max_chars=800))
+    if segmented_text and not cleaned:
+        raise RuntimeError("segmented_text_requires_normalized_reviews")
 
     if segmented_text and settings.groq_api_key:
         try:
@@ -115,6 +133,10 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
         degraded = True
         degraded_reason = "groq_key_missing_or_no_reviews"
         themes, quotes = _rule_based_themes(cleaned)
+    logger.info(
+        "pipeline_stage themes_generated",
+        extra={"stage": "themes_generated", "count": len(themes), "correlation_id": _cid_var.get()},
+    )
 
     # Pulse synthesis (Gemini) with schema validation; fallback deterministic compose
     narrative = ""
@@ -126,7 +148,7 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
                 {"themes": [t.model_dump() for t in themes], "quotes": [q.model_dump() for q in quotes]},
                 ensure_ascii=False,
             )
-            out = await gemini.generate_text_async(weekly_pulse_prompt(theme_json))
+            out = await gemini.generate_text(weekly_pulse_prompt(theme_json))
             payload = json.loads(out) if out and out.strip().startswith("{") else {}
             narrative = str(payload.get("narrative") or "").strip()
             actions = [str(a) for a in (payload.get("recommended_actions") or [])][:6]
@@ -166,9 +188,13 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
 
     await repo.create_weekly_pulse(pulse)
     logger.info(
+        "pipeline_stage pulse_persisted",
+        extra={"stage": "pulse_persisted", "pulse_id": pulse.pulse_id, "correlation_id": _cid_var.get()},
+    )
+    logger.info(
         "pulse_generated",
         extra={
-            "correlation_id": "-",
+            "correlation_id": _cid_var.get(),
             "degraded": degraded,
             "reviews_considered": metrics.reviews_considered,
         },

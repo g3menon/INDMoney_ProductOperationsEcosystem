@@ -56,31 +56,19 @@ def main() -> int:
         except Exception as exc:
             raise SystemExit(f"Row {i} failed schema validation: {exc}") from exc
 
-    normalized, stats = normalize_raw_reviews(raw_rows)
-
     async def _persist() -> tuple[int, int]:
         rc = 0
         if os.getenv("INGEST_SKIP_RAW", "").lower() not in ("1", "true", "yes"):
             rc = await repo.persist_raw_reviews(raw_rows)
+        normalized, stats = normalize_raw_reviews(raw_rows)
         nc = await repo.persist_normalized_reviews(normalized)
+        skipped = int(stats.input_rows - stats.kept)
+        print(f"Raw rows read: {stats.input_rows} | Normalized: {stats.kept} | Skipped: {skipped}")
         return rc, nc
 
     rc, nc = asyncio.run(_persist())
 
-    print(
-        json.dumps(
-            {
-                "input_rows": stats.input_rows,
-                "raw_persisted": rc,
-                "normalized_kept": stats.kept,
-                "normalized_persisted": nc,
-                "dropped_short": stats.dropped_short,
-                "dropped_non_english": stats.dropped_non_english,
-                "dropped_dupe": stats.dropped_dupe,
-            },
-            indent=2,
-        )
-    )
+    # Detailed stats are intentionally not printed here to keep Phase 2 deliverable output stable.
     return 0
 
 

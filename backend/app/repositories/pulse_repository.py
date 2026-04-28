@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
 from supabase import Client, create_client
@@ -107,7 +107,7 @@ class SupabasePulseRepository:
 
     async def get_recent_normalized_reviews(self, lookback_weeks: int, limit: int = 500) -> list[NormalizedReview]:
         # Prefer normalized_at filter (UTC).
-        cutoff_iso = (datetime.utcnow() - timedelta(weeks=lookback_weeks)).isoformat()
+        cutoff_iso = (datetime.now(timezone.utc) - timedelta(weeks=lookback_weeks)).isoformat()
         def _run() -> Any:
             return (
                 self._client.table("reviews_normalized")

@@ -8,6 +8,7 @@ import logging
 import google.generativeai as genai
 
 from app.core.config import Settings
+from app.core.context import correlation_id as _cid_var
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class GeminiClient:
             raise RuntimeError(f"gemini_api_key_missing_{tier}")
         genai.configure(api_key=key)
 
-    def generate_text(self, prompt: str) -> str:
+    def _generate_text_sync(self, prompt: str) -> str:
         try:
             self._configure("primary")
             model = genai.GenerativeModel(self._settings.gemini_model)
@@ -33,11 +34,11 @@ class GeminiClient:
             key_specific = any(s in msg for s in ("rate", "quota", "billing", "exhaust", "429", "resource"))
             if not key_specific:
                 raise
-            logger.warning("gemini_primary_failed_try_fallback", extra={"correlation_id": "-"})
+            logger.warning("gemini_primary_failed_try_fallback", extra={"correlation_id": _cid_var.get()})
             self._configure("fallback")
             model = genai.GenerativeModel(self._settings.gemini_model)
             resp = model.generate_content(prompt)
             return (resp.text or "").strip()
 
-    async def generate_text_async(self, prompt: str) -> str:
-        return await asyncio.to_thread(self.generate_text, prompt)
+    async def generate_text(self, prompt: str) -> str:
+        return await asyncio.to_thread(self._generate_text_sync, prompt)

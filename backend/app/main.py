@@ -57,6 +57,8 @@ async def correlation_id_middleware(request: Request, call_next):
     if not cid:
         cid = str(uuid4())
     request.state.correlation_id = cid[:128]
+    from app.core.context import correlation_id as _cid_var
+    _cid_var.set(request.state.correlation_id)
     response = await call_next(request)
     response.headers["X-Correlation-ID"] = request.state.correlation_id
     return response
