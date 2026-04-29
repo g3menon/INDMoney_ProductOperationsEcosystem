@@ -1,0 +1,59 @@
+{
+  "version": "phase4-v1",
+  "total_weight": 110.0,
+  "earned_weight": 110.0,
+  "score": 100.0,
+  "checks": [
+    {
+      "id": "fixture_corpus_loads",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "chunk_document_produces_chunks",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "chunk_metadata_preserved",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "bm25_builds_and_searches",
+      "weight": 15.0,
+      "passed": true
+    },
+    {
+      "id": "rrf_fusion_merges",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "intent_classifier_routes",
+      "weight": 15.0,
+      "passed": true
+    },
+    {
+      "id": "disallowed_refused",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "rag_index_loads",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "weak_retrieval_fallback",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "chat_api_citations_field",
+      "weight": 10.0,
+      "passed": true
+    }
+  ],
+  "generated_at": "2026-04-29T10:18:16.866309+00:00"
+}

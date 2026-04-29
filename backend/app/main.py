@@ -41,6 +41,12 @@ async def lifespan(_app: FastAPI):
                 "PHASE1_SKIP_SUPABASE_STARTUP_CHECK=true for local offline work.",
             )
         logger.info("startup_supabase_ok", extra={"correlation_id": "-"})
+
+    # Phase 4: load RAG index from disk (safe if absent; chat degrades to Phase 3 skeleton).
+    from app.rag.retrieve import load_rag_index_from_default
+
+    await load_rag_index_from_default()
+
     yield
 
 

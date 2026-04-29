@@ -46,8 +46,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phase", type=int, default=1, help="Phase number (default: 1).")
     args = parser.parse_args(argv)
 
-    if args.phase not in (1, 2, 3):
-        print("Only phase 1, 2, and 3 evals are available.", file=sys.stderr)
+    if args.phase not in (1, 2, 3, 4):
+        print("Only phase 1, 2, 3, and 4 evals are available.", file=sys.stderr)
         return 2
 
     _ensure_eval_env()
@@ -65,10 +65,14 @@ def main(argv: list[str] | None = None) -> int:
             from app.evals.pulse_checks import run_phase2_evals
 
             report = run_phase2_evals()
-        else:
+        elif args.phase == 3:
             from app.evals.phase3_checks import run_phase3_evals
 
             report = run_phase3_evals()
+        else:
+            from app.evals.phase4_checks import run_phase4_evals
+
+            report = run_phase4_evals()
 
     out_path = _persist_deliverable(args.phase, report)
     print(report.model_dump_json(indent=2))

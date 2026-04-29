@@ -16,3 +16,6 @@ dist/
 # Data artifacts — raw collection outputs (never commit review data)
 reviews_raw*.json
 scripts/reviews_raw.json
+
+# Phase 4: RAG built index (rebuilt from fixture/scrape via rebuild_index.py)
+backend/app/rag/index/chunks.json

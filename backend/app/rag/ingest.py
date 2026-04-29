@@ -1,6 +1,7 @@
-"""Shared ingestion utilities for Phase 2.
+"""Shared ingestion utilities for Phase 2 (reviews) and Phase 4 (MF/fee web documents).
 
-Implements cleaning + normalization rules for Play Store review text before any LLM usage.
+Phase 2: cleaning + normalization of Play Store review text before any LLM usage.
+Phase 4: HTML cleaning and extraction for MF/fee corpus pages (Rules G19, P4.8).
 """
 
 from __future__ import annotations
@@ -91,4 +92,52 @@ def normalize_raw_reviews(raw: list[RawReview], min_len: int = 20) -> tuple[list
         dropped_non_english=dropped_non_english,
         dropped_dupe=dropped_dupe,
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: MF / fee web document ingestion (Rules P4.8, G19)
+# ---------------------------------------------------------------------------
+
+# Boilerplate patterns common on Groww fund pages.
+_BOILERPLATE_RE = re.compile(
+    r"(cookie|privacy policy|terms of use|javascript|loading\.\.\.|back to top"
+    r"|share on|follow us|download app|install groww|groww app)",
+    re.I,
+)
+
+
+def clean_html_content(html: str) -> str:
+    """Strip HTML tags and known boilerplate from raw page HTML.
+
+    Requires beautifulsoup4; falls back to regex strip if not installed (Rules G7).
+    """
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+
+        soup = BeautifulSoup(html, "lxml")
+        # Remove script, style, nav, footer, header blocks.
+        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "aside"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n")
+    except ImportError:
+        text = re.sub(r"<[^>]+>", "\n", html)
+
+    # Normalise whitespace.
+    lines = [ln.strip() for ln in text.splitlines()]
+    # Drop boilerplate lines and very short fragments.
+    kept = [ln for ln in lines if ln and len(ln) > 12 and not _BOILERPLATE_RE.search(ln)]
+    return "\n".join(kept)
+
+
+def normalize_document_content(raw_text: str) -> str:
+    """Normalize cleaned web document text: collapse whitespace, remove duplicate lines."""
+    lines = [ln.strip() for ln in raw_text.splitlines() if ln.strip()]
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for ln in lines:
+        key = ln.lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(ln)
+    return "\n".join(deduped)
 

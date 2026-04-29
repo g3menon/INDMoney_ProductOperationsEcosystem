@@ -1,4 +1,8 @@
-"""Customer chat APIs (Phase 3)."""
+"""Customer chat APIs (Phase 3 + Phase 4).
+
+Phase 3: POST /chat/message, GET /chat/prompts, GET /chat/history/{session_id}.
+Phase 4: ChatMessageResult now carries citations from RAG-grounded answers (Rules R12, P4.7).
+"""
 
 from __future__ import annotations
 
@@ -22,13 +26,22 @@ async def post_message(body: ChatMessageRequest) -> APIEnvelope[ChatMessageResul
     session_id = body.session_id or await repo.create_session()
     await repo.add_message(session_id=session_id, role="user", content=body.message)
 
-    assistant = await generate_customer_response(settings=settings, session_id=session_id, user_message=body.message)
-    assistant_msg = await repo.add_message(session_id=session_id, role="assistant", content=assistant)
+    assistant_text, citations = await generate_customer_response(
+        settings=settings,
+        session_id=session_id,
+        user_message=body.message,
+    )
+    assistant_msg = await repo.add_message(session_id=session_id, role="assistant", content=assistant_text)
 
     return APIEnvelope(
         success=True,
         message="chat_message",
-        data=ChatMessageResult(session_id=session_id, assistant_message=assistant, created_at=assistant_msg.created_at),
+        data=ChatMessageResult(
+            session_id=session_id,
+            assistant_message=assistant_text,
+            citations=citations,
+            created_at=assistant_msg.created_at,
+        ),
     )
 
 

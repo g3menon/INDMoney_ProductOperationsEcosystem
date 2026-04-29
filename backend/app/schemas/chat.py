@@ -1,9 +1,7 @@
-"""Customer chat schemas (Phase 3).
+"""Customer chat schemas (Phase 3 + Phase 4).
 
-Phase 3 definition of done:
-- text chat runtime
-- prompt chips
-- chat persistence (session + message history)
+Phase 3: text chat runtime, prompt chips, session persistence.
+Phase 4: citations attached to ChatMessageResult for grounded RAG answers.
 """
 
 from __future__ import annotations
@@ -30,9 +28,20 @@ class ChatMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
 
 
+class CitationSource(BaseModel):
+    """Citation metadata returned with RAG-grounded answers (Phase 4, Rules R12/P4.7)."""
+
+    source_url: str
+    doc_type: str
+    title: str
+    last_checked: str
+    relevant_quote: str | None = None
+
+
 class ChatMessageResult(BaseModel):
     session_id: str
     assistant_message: str
+    citations: list[CitationSource] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=lambda: datetime.utcnow())
 
 
