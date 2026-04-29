@@ -18,8 +18,8 @@ from app.llm.gemini_client import GeminiClient
 from app.llm.groq_client import GroqClient
 from app.llm.prompt_registry import pulse_theme_prompt, weekly_pulse_prompt
 from app.repositories.pulse_repository import PulseRepository, get_pulse_repository
-from app.rag.chunk import segment_review_text
 from app.rag.ingest import normalize_raw_reviews
+from app.services.review_sampler import sample_reviews_for_theme_prompt
 from app.schemas.pulse import (
     NormalizedReview,
     PulseGenerateRequest,
@@ -108,12 +108,31 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
     # Theme generation (Groq) over normalized text only
     themes: list[PulseTheme]
     quotes: list[PulseQuote]
-    # Optional segmentation for long reviews before theme LLM step (Phase 2 only).
-    segmented_text: list[str] = []
-    for n in cleaned:
-        segmented_text.extend(segment_review_text(n.text, max_chars=800))
-    if segmented_text and not cleaned:
-        raise RuntimeError("segmented_text_requires_normalized_reviews")
+    # `segmented_text` is bounded for Groq TPM only.
+    # `cleaned` still holds ALL reviews and is used for metrics and quotes.
+    segmented_text: list[str] = sample_reviews_for_theme_prompt(
+        reviews=cleaned,
+        max_segments=settings.pulse_max_theme_segments,
+        max_chars_per_segment=800,
+    )
+
+    _approx_tokens = int(sum(len(s) for s in segmented_text) * 1.3 / 4)
+    logger.info(
+        "theme_prompt_budget",
+        extra={
+            "reviews_total": len(cleaned),               # all 200
+            "segments_to_groq": len(segmented_text),     # bounded sample
+            "approx_tokens": _approx_tokens,
+        },
+    )
+    if _approx_tokens > 5000:
+        logger.warning(
+            "theme_prompt_near_tpm_limit",
+            extra={
+                "approx_tokens": _approx_tokens,
+                "hint": "lower PULSE_MAX_THEME_SEGMENTS in .env",
+            },
+        )
 
     if segmented_text and settings.groq_api_key:
         try:
@@ -123,11 +142,41 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
             payload = json.loads(out) if out else {}
             themes = [PulseTheme.model_validate(t) for t in (payload.get("themes") or [])][:6]
             quotes = [PulseQuote.model_validate(q) for q in (payload.get("quotes") or [])][:8]
+            # If Groq returns fewer than 3 quotes, supplement from full cleaned list
+            if len(quotes) < 3:
+                seen_ids = {q.review_id for q in quotes}
+                fallback_quotes = sorted(
+                    cleaned,
+                    key=lambda r: abs(r.rating - 3),  # most extreme ratings first
+                    reverse=True,
+                )
+                for r in fallback_quotes:
+                    if r.review_id not in seen_ids and len(quotes) < 8:
+                        quotes.append(
+                            PulseQuote(
+                                review_id=r.review_id,
+                                quote=r.text[:180],
+                                rating=r.rating,
+                            )
+                        )
+                        seen_ids.add(r.review_id)
             if not themes:
                 raise ValueError("empty_themes")
         except Exception as exc:
             degraded = True
-            degraded_reason = f"groq_degraded:{type(exc).__name__}"
+            exc_str = str(exc).lower()
+            if any(k in exc_str for k in ("rate_limit", "tokens_per_minute", "tpm")):
+                logger.warning(
+                    "groq_tpm_limit_hit",
+                    extra={
+                        "segments_sent": len(segmented_text),
+                        "approx_tokens": _approx_tokens,
+                        "hint": "lower PULSE_MAX_THEME_SEGMENTS; current value too high for free tier",
+                    },
+                )
+                degraded_reason = "groq_tpm_limit"
+            else:
+                degraded_reason = f"groq_degraded:{type(exc).__name__}"
             themes, quotes = _rule_based_themes(cleaned)
     else:
         degraded = True
@@ -172,6 +221,7 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
             "Draft a customer-facing status update for known issues where applicable.",
         ]
 
+    # Uses all cleaned reviews (full 200), not the sampled prompt segments
     avg = round(sum(r.rating for r in cleaned) / max(len(cleaned), 1), 2) if cleaned else 0.0
     metrics = PulseMetrics(reviews_considered=len(cleaned), average_rating=avg, lookback_weeks=req.lookback_weeks)
 

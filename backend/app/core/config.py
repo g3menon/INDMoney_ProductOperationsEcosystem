@@ -61,6 +61,14 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GROQ_API_KEY_FALLBACK"),
     )
 
+    # Max text segments forwarded to Groq for theme generation per pulse run.
+    # This is a Groq TPM guardrail ONLY — it does not reduce reviews collected,
+    # stored, counted in metrics, or used for quotes/normalization.
+    pulse_max_theme_segments: int = Field(
+        default=60,
+        validation_alias=AliasChoices("PULSE_MAX_THEME_SEGMENTS"),
+    )
+
     # ---------------------------------------------------------------------
     # LLM guardrails (Phase 4): cache, tier routing, and budgets
     # ---------------------------------------------------------------------
@@ -152,6 +160,7 @@ class Settings(BaseSettings):
                 "groq_primary": bool(self.groq_api_key),
                 "groq_fallback": bool(self.groq_api_key_fallback),
             },
+            "pulse_max_theme_segments": self.pulse_max_theme_segments,
         }
 
 
