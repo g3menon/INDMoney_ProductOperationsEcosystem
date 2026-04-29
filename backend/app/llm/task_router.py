@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 
 from app.schemas.rag import IntentLabel
+from typing import Literal
 
 # ---- keyword sets ----
 
@@ -161,6 +162,17 @@ def classify_intent(message: str) -> IntentLabel:
         return "hybrid_query"
 
     return "out_of_scope"
+
+
+def assign_model_tier(intent: IntentLabel) -> Literal["light", "standard", "heavy"]:
+    LIGHT = {"out_of_scope", "disallowed", "direct_metric_query"}
+    STANDARD = {"mf_query", "fee_query", "booking_intent"}
+    HEAVY = {"hybrid_query"}
+    if intent in LIGHT:
+        return "light"
+    if intent in HEAVY:
+        return "heavy"
+    return "standard"
 
 
 DISALLOWED_RESPONSES: dict[str, str] = {

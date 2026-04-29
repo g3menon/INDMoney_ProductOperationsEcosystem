@@ -126,6 +126,8 @@ async def generate_customer_response(
 
     # ── 3. direct_metric_query ───────────────────────────────────────────
     if intent == "direct_metric_query":
+        # GUARDRAIL: direct_metric_query never calls Gemini or Groq.
+        # Response is assembled from MFMetricsStore only.
         metrics = _try_metrics_lookup(user_message)
         if metrics is None:
             # Fund not identifiable → ask for clarification.
@@ -134,7 +136,28 @@ async def generate_customer_response(
                 extra={"session_id": session_id},
             )
             return _CLARIFY_FUND, []
+        from app.llm.response_cache import (
+            get_cached,
+            log_cache_hit,
+            log_cache_miss,
+            make_cache_key,
+            set_cached,
+            should_bypass_cache,
+        )
+
+        cache_key = make_cache_key(intent=intent, query=user_message, fund_doc_id=metrics.doc_id)
+        if not should_bypass_cache(settings, user_message):
+            cached = get_cached(cache_key)
+            if cached:
+                log_cache_hit(intent, cache_key)
+                # Citations are deterministic for structured answers.
+                result = compose_structured_answer(user_message, metrics, intent)
+                return cached, result.citations
+            log_cache_miss(intent)
+
         result = compose_structured_answer(user_message, metrics, intent)
+        if not should_bypass_cache(settings, user_message):
+            set_cached(cache_key, result.answer, ttl=3600)
         _log_done(session_id, intent, result, t0)
         return result.answer, result.citations
 

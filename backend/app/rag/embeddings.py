@@ -12,6 +12,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.schemas.rag import DocumentChunk, ScoredChunk
+from app.llm.throttle import wait_for_slot
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -79,6 +80,8 @@ class EmbeddingIndex:
             if chunk.embedding is not None:
                 result.append(chunk)
                 continue
+            # Guardrail 3: script-level RPM throttling for Gemini embed calls.
+            await wait_for_slot("gemini", settings=settings)
             vec = await asyncio.to_thread(
                 _embed_text_sync, chunk.content, settings, "retrieval_document"
             )

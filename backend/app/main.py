@@ -53,6 +53,11 @@ async def lifespan(_app: FastAPI):
     await load_metrics_store_from_default()
     logger.info("mf_metrics_store_startup_complete", extra={"correlation_id": "-"})
 
+    # Guardrail 6: startup summary of active LLM guardrails.
+    from app.llm.response_cache import log_guardrails_active
+
+    log_guardrails_active(settings)
+
     yield
 
 

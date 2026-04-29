@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 _DISCLAIMER = "This is general information only, not personalised financial advice."
 _MAX_CONTEXT_CHARS = 2400
 _MAX_CHUNKS_FOR_ANSWER = 5
+_CONTEXT_TOKEN_BUDGET = 2000
 
 # ---------------------------------------------------------------------------
 # Metric field → query keyword mapping for targeted structured answers
@@ -285,25 +286,42 @@ async def compose_grounded_answer(
     intent: str,
     settings: "Settings",
 ) -> AnswerResult:
-    """Generate a grounded answer from retrieved chunks using Gemini."""
+    """Generate a grounded answer from retrieved chunks using an LLM tier."""
     from app.llm.prompt_registry import rag_answer_prompt
+    from app.llm.response_cache import (
+        get_cached,
+        log_cache_hit,
+        log_cache_miss,
+        make_cache_key,
+        set_cached,
+        should_bypass_cache,
+    )
+    from app.llm.task_router import assign_model_tier
 
     if not chunks:
         return _safe_fallback(intent, query, "no_retrieval_hits")
 
-    top_chunks = chunks[:_MAX_CHUNKS_FOR_ANSWER]
-    citations = _build_citations(top_chunks)
+    tier = assign_model_tier(intent)  # mf_query/fee_query => standard; hybrid_query => heavy
+    cache_key = make_cache_key(intent=intent, query=query, fund_doc_id=None)
 
-    context_parts: list[str] = []
-    total_chars = 0
-    used_chunks: list[ScoredChunk] = []
-    for sc in top_chunks:
-        chunk_text = sc.chunk.content[:600]
-        if total_chars + len(chunk_text) > _MAX_CONTEXT_CHARS:
-            break
-        context_parts.append(f"[Source: {sc.chunk.title}]\n{chunk_text}")
-        total_chars += len(chunk_text)
-        used_chunks.append(sc)
+    if not should_bypass_cache(settings, query):
+        cached = get_cached(cache_key)
+        if cached:
+            log_cache_hit(intent, cache_key)
+            used_chunks = _select_chunks_for_llm(chunks, settings)
+            return AnswerResult(answer=cached, citations=_build_citations(used_chunks))
+        log_cache_miss(intent)
+
+    used_chunks = _select_chunks_for_llm(chunks, settings)
+    context_parts, approx_tokens = _build_context_window(
+        used_chunks,
+        token_budget=_CONTEXT_TOKEN_BUDGET,
+        chunk_char_limit=600,
+    )
+    logger.info(
+        "rag_context_window",
+        extra={"chunks_sent": len(context_parts), "approx_tokens": int(approx_tokens)},
+    )
 
     if not context_parts:
         return _safe_fallback(intent, query, "context_too_large")
@@ -314,16 +332,19 @@ async def compose_grounded_answer(
         intent=intent,
     )
 
-    raw_answer = await _call_gemini(prompt, settings)
+    raw_answer = await _call_llm_text(prompt=prompt, settings=settings, tier=tier)
     logger.info(
         "rag_answer_composed",
         extra={"intent": intent, "fallback": raw_answer is None},
     )
 
     if not raw_answer:
-        return _safe_fallback(intent, query, "gemini_unavailable")
+        return _safe_fallback(intent, query, "llm_unavailable")
 
     answer = raw_answer if _DISCLAIMER in raw_answer else f"{raw_answer}\n\n{_DISCLAIMER}"
+    if not should_bypass_cache(settings, query):
+        # Grounded RAG answers: shorter TTL (Guardrail 1).
+        set_cached(cache_key, answer, ttl=1800)
     return AnswerResult(answer=answer, citations=_build_citations(used_chunks))
 
 
@@ -345,19 +366,43 @@ async def compose_hybrid_answer(
     If Gemini is unavailable, falls back to the deterministic structured answer.
     """
     from app.llm.prompt_registry import format_metrics_block, hybrid_answer_prompt
+    from app.llm.response_cache import (
+        get_cached,
+        log_cache_hit,
+        log_cache_miss,
+        make_cache_key,
+        set_cached,
+        should_bypass_cache,
+    )
+    from app.llm.task_router import assign_model_tier
 
     metrics_block = format_metrics_block(metrics)
 
-    context_parts: list[str] = []
-    total_chars = 0
-    used_chunks: list[ScoredChunk] = []
-    for sc in (chunks or [])[:_MAX_CHUNKS_FOR_ANSWER]:
-        chunk_text = sc.chunk.content[:500]
-        if total_chars + len(chunk_text) > _MAX_CONTEXT_CHARS:
-            break
-        context_parts.append(f"[Source: {sc.chunk.title}]\n{chunk_text}")
-        total_chars += len(chunk_text)
-        used_chunks.append(sc)
+    tier = assign_model_tier(intent)  # hybrid_query => heavy
+    cache_key = make_cache_key(intent=intent, query=query, fund_doc_id=metrics.doc_id)
+
+    if not should_bypass_cache(settings, query):
+        cached = get_cached(cache_key)
+        if cached:
+            log_cache_hit(intent, cache_key)
+            used_chunks = _select_chunks_for_llm(chunks or [], settings)
+            return _hybrid_result_from_cached(
+                answer=cached,
+                metrics=metrics,
+                used_chunks=used_chunks,
+            )
+        log_cache_miss(intent)
+
+    used_chunks = _select_chunks_for_llm(chunks or [], settings)
+    context_parts, approx_tokens = _build_context_window(
+        used_chunks,
+        token_budget=_CONTEXT_TOKEN_BUDGET,
+        chunk_char_limit=500,
+    )
+    logger.info(
+        "rag_context_window",
+        extra={"chunks_sent": len(context_parts), "approx_tokens": int(approx_tokens)},
+    )
 
     if not context_parts:
         # No RAG context — fall back to deterministic structured answer.
@@ -370,7 +415,7 @@ async def compose_hybrid_answer(
         intent=intent,
     )
 
-    raw_answer = await _call_gemini(prompt, settings)
+    raw_answer = await _call_llm_text(prompt=prompt, settings=settings, tier=tier)
     logger.info(
         "hybrid_answer_composed",
         extra={"intent": intent, "fallback": raw_answer is None},
@@ -380,8 +425,80 @@ async def compose_hybrid_answer(
         return compose_structured_answer(query, metrics, intent)
 
     answer = raw_answer if _DISCLAIMER in raw_answer else f"{raw_answer}\n\n{_DISCLAIMER}"
+    if not should_bypass_cache(settings, query):
+        set_cached(cache_key, answer, ttl=1800)
 
-    # Citations: always include the metrics source + any RAG sources.
+    return _hybrid_result_from_cached(answer=answer, metrics=metrics, used_chunks=used_chunks)
+
+
+def _approx_tokens(text: str) -> int:
+    # Rough approximation: tokens ≈ words × 1.3
+    words = len((text or "").split())
+    return int(words * 1.3)
+
+
+def _truncate_to_token_budget(text: str, remaining_tokens: int) -> str:
+    if remaining_tokens <= 0:
+        return ""
+    max_words = max(1, int(remaining_tokens / 1.3))
+    words = (text or "").split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words]).rstrip()
+
+
+def _select_chunks_for_llm(
+    chunks: list[ScoredChunk],
+    settings: "Settings",
+) -> list[ScoredChunk]:
+    # Guardrail 2: cap chunks passed to LLM prompt.
+    k = max(1, int(getattr(settings, "max_rag_chunks_for_llm", 3)))
+    ranked = sorted(chunks or [], key=lambda sc: float(sc.score), reverse=True)
+    selected = ranked[:k]
+    # Keep deterministic ordering as ranked already high->low.
+    # Note: chunk text truncation happens during context building.
+    return selected
+
+
+def _build_context_window(
+    chunks: list[ScoredChunk],
+    token_budget: int,
+    chunk_char_limit: int,
+) -> tuple[list[str], int]:
+    context_parts: list[str] = []
+    approx_total = 0
+
+    for i, sc in enumerate(chunks):
+        # Keep existing guardrail to avoid huge prompts; the token budget is the main control.
+        # (Chunk content can be long; this keeps runtime + logs stable.)
+        # Per-chunk character cap as a secondary safety limit.
+        limit = max(200, int(chunk_char_limit))
+        chunk_text = (sc.chunk.content or "")[:limit]
+        part = f"[Source: {sc.chunk.title}]\n{chunk_text}"
+        part_tokens = _approx_tokens(part)
+
+        if approx_total + part_tokens <= token_budget:
+            context_parts.append(part)
+            approx_total += part_tokens
+            continue
+
+        # Truncate THIS chunk to fit remaining budget and stop (Guardrail 2).
+        remaining = token_budget - approx_total
+        truncated_body = _truncate_to_token_budget(part, remaining_tokens=remaining)
+        truncated_body = truncated_body.strip()
+        if truncated_body:
+            context_parts.append(truncated_body)
+            approx_total = token_budget
+        break
+
+    return context_parts, approx_total
+
+
+def _hybrid_result_from_cached(
+    answer: str,
+    metrics: MFFundMetrics,
+    used_chunks: list[ScoredChunk],
+) -> AnswerResult:
     citations: list[CitationSource] = [
         CitationSource(
             source_url=metrics.source_url,
@@ -401,47 +518,28 @@ async def compose_hybrid_answer(
                     last_checked=sc.chunk.last_checked,
                 )
             )
-
     return AnswerResult(answer=answer, citations=citations)
 
 
-# ---------------------------------------------------------------------------
-# Shared Gemini call helper
-# ---------------------------------------------------------------------------
+async def _call_llm_text(prompt: str, settings: "Settings", tier: str) -> str | None:
+    """Tier-based provider/model routing (Guardrail 4)."""
 
+    provider = "gemini" if tier == "heavy" else "groq"
 
-async def _call_gemini(prompt: str, settings: "Settings") -> str | None:
-    def _generate() -> str | None:
-        try:
-            import google.generativeai as genai  # type: ignore
+    try:
+        if provider == "gemini":
+            from app.llm.gemini_client import GeminiClient
 
-            key = settings.gemini_api_key
-            fallback_key = settings.gemini_api_key_fallback
-            if not key:
-                return None
+            client = GeminiClient(settings)
+            # Route heavy tier to configured heavy model.
+            return (await client.generate_text(prompt, model=settings.llm_heavy_model)).strip()
 
-            def _run(api_key: str) -> str:
-                genai.configure(api_key=api_key)
-                model = genai.GenerativeModel(settings.gemini_model)
-                resp = model.generate_content(prompt)
-                return (resp.text or "").strip()
+        from app.llm.groq_client import GroqClient
 
-            try:
-                return _run(key)
-            except Exception as exc:
-                msg = str(exc).lower()
-                if fallback_key and any(
-                    s in msg for s in ("rate", "quota", "billing", "429", "exhaust")
-                ):
-                    logger.warning("gemini_primary_failed_using_fallback")
-                    return _run(fallback_key)
-                raise
-        except Exception as exc:
-            logger.warning("gemini_call_error", extra={"error": str(exc)[:100]})
-            return None
-
-    t0 = time.monotonic()
-    result = await asyncio.to_thread(_generate)
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-    logger.debug("gemini_call_done", extra={"elapsed_ms": elapsed_ms, "ok": result is not None})
-    return result
+        client = GroqClient(settings)
+        model = settings.llm_standard_model
+        # Groq client is sync; run in thread.
+        return (await asyncio.to_thread(client.chat_json, prompt, model)).strip()
+    except Exception as exc:
+        logger.warning("llm_call_error", extra={"error": str(exc)[:120], "tier": tier})
+        return None

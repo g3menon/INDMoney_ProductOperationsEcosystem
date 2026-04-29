@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -71,6 +72,29 @@ def _load_fixture_metrics() -> list[dict]:
     return json.loads(_FIXTURE_METRICS_PATH.read_text(encoding="utf-8"))
 
 
+async def _render_html_with_playwright(url: str) -> str | None:
+    """Fetch fully rendered HTML using Playwright (optional).
+
+    Groww MF pages often populate NAV/AUM/holdings via client-side API calls.
+    This helper enables deterministic extraction without changing downstream code.
+    """
+    try:
+        from playwright.async_api import async_playwright  # type: ignore
+    except Exception:
+        return None
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=45_000)
+            html = await page.content()
+            await browser.close()
+            return html
+    except Exception:
+        return None
+
+
 async def _scrape_document(
     entry: dict,
     today: str,
@@ -102,6 +126,14 @@ async def _scrape_document(
             return None, None
 
         html = resp.text
+        use_playwright = os.getenv("USE_PLAYWRIGHT_RENDER", "").lower() in ("1", "true", "yes")
+        if use_playwright:
+            rendered = await _render_html_with_playwright(url)
+            if rendered and len(rendered) > len(html):
+                html = rendered
+                print(f"  INFO  {doc_id}: using Playwright-rendered HTML")
+            else:
+                print(f"  WARN  {doc_id}: Playwright render unavailable; using raw HTML")
         cleaned = clean_html_content(html)
         normalized = normalize_document_content(cleaned)
 
@@ -208,6 +240,43 @@ async def _build_index(
         all_chunks.extend(chunks)
     print(f"  Total chunks: {len(all_chunks)}")
 
+    # ── Add structured metrics chunk per fund ────────────────────────────────
+    # This makes structured MF metrics vector-searchable when --embed is enabled.
+    from app.schemas.rag import DocumentChunk, MFFundMetrics
+
+    metrics_by_doc_id: dict[str, dict] = {
+        m.get("doc_id"): m for m in metrics_records if isinstance(m, dict) and m.get("doc_id")
+    }
+
+    metrics_chunks_added = 0
+    for doc in docs:
+        m_dict = metrics_by_doc_id.get(doc.doc_id)
+        if not m_dict:
+            continue
+        try:
+            metrics = MFFundMetrics.model_validate(m_dict)
+        except Exception:
+            continue
+
+        content = _format_metrics_for_embedding(metrics)
+        chunk_id = _stable_metrics_chunk_id(doc.doc_id)
+        all_chunks.append(
+            DocumentChunk(
+                chunk_id=chunk_id,
+                doc_id=doc.doc_id,
+                source_url=doc.url,
+                title=f"{doc.title} — Structured Metrics",
+                doc_type=doc.doc_type,
+                last_checked=doc.last_checked,
+                content=content,
+                chunk_index=9999,
+            )
+        )
+        metrics_chunks_added += 1
+
+    if metrics_chunks_added:
+        print(f"\n[chunk] Added {metrics_chunks_added} structured metrics chunk(s).")
+
     # ── Optional embedding ──────────────────────────────────────────────────
     if embed:
         print("\n[embed] Generating Gemini embeddings...")
@@ -267,6 +336,67 @@ async def _build_index(
             print(f"[supabase] WARN: Supabase write failed ({exc}); local index files are intact.")
 
     print("\nDone. Restart the backend server to load the updated indexes.")
+
+
+def _stable_metrics_chunk_id(doc_id: str) -> str:
+    """Deterministic chunk ID for the structured metrics chunk."""
+    h = hashlib.sha256(f"{doc_id}:METRICS".encode("utf-8")).hexdigest()[:12].upper()
+    return f"CHK-{h}"
+
+
+def _jsonish(v: object) -> str:
+    """Compact stable stringification for embedding payloads."""
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, str):
+        return v.strip() or "null"
+    try:
+        return json.dumps(v, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    except Exception:
+        return str(v)
+
+
+def _format_metrics_for_embedding(metrics: "MFFundMetrics") -> str:
+    """Include ALL requested fields as explicit keys for embedding."""
+    r = metrics.returns.model_dump() if metrics.returns else None
+    top_holdings = [h.model_dump() for h in metrics.top_holdings]
+    sector_alloc = [s.model_dump() for s in metrics.sector_allocation]
+    asset_alloc = metrics.asset_allocation or {}
+
+    lines = [
+        "STRUCTURED_MUTUAL_FUND_METRICS",
+        f"fund_name: {_jsonish(metrics.fund_name)}",
+        f"amc: {_jsonish(metrics.amc)}",
+        f"category: {_jsonish(metrics.category)}",
+        f"sub_category: {_jsonish(metrics.sub_category)}",
+        f"plan: {_jsonish(metrics.plan)}",
+        f"option: {_jsonish(metrics.option)}",
+        f"nav: {_jsonish(metrics.nav)}",
+        f"nav_date: {_jsonish(metrics.nav_date)}",
+        f"aum_cr: {_jsonish(metrics.aum_cr)}",
+        f"expense_ratio_pct: {_jsonish(metrics.expense_ratio_pct)}",
+        f"exit_load_pct: {_jsonish(metrics.exit_load_pct)}",
+        f"exit_load_window_days: {_jsonish(metrics.exit_load_window_days)}",
+        f"exit_load_description: {_jsonish(metrics.exit_load_description)}",
+        f"risk_level: {_jsonish(metrics.risk_level)}",
+        f"rating: {_jsonish(metrics.rating)}",
+        f"benchmark: {_jsonish(metrics.benchmark)}",
+        f"min_sip_amount: {_jsonish(metrics.min_sip_amount)}",
+        f"min_lumpsum_amount: {_jsonish(metrics.min_lumpsum_amount)}",
+        f"returns: {_jsonish(r)}",
+        f"top_holdings: {_jsonish(top_holdings)}",
+        f"sector_allocation: {_jsonish(sector_alloc)}",
+        f"asset_allocation: {_jsonish(asset_alloc)}",
+        f"fund_objective: {_jsonish(metrics.fund_objective)}",
+        f"source_url: {_jsonish(metrics.source_url)}",
+        f"scraped_at: {_jsonish(metrics.scraped_at)}",
+        f"last_checked: {_jsonish(metrics.last_checked)}",
+    ]
+    return "\n".join(lines)
 
 
 def main() -> int:

@@ -61,6 +61,46 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GROQ_API_KEY_FALLBACK"),
     )
 
+    # ---------------------------------------------------------------------
+    # LLM guardrails (Phase 4): cache, tier routing, and budgets
+    # ---------------------------------------------------------------------
+
+    llm_cache_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("LLM_CACHE_ENABLED"),
+    )
+
+    max_rag_chunks_for_llm: int = Field(
+        default=3,
+        validation_alias=AliasChoices("MAX_RAG_CHUNKS_FOR_LLM"),
+    )
+
+    gemini_rpm_limit: int = Field(
+        default=8,
+        validation_alias=AliasChoices("GEMINI_RPM_LIMIT"),
+    )
+    groq_rpm_limit: int = Field(
+        default=25,
+        validation_alias=AliasChoices("GROQ_RPM_LIMIT"),
+    )
+
+    llm_light_model: str = Field(
+        default="llama-3.3-70b-versatile",
+        validation_alias=AliasChoices("LLM_LIGHT_MODEL"),
+    )
+    llm_standard_model: str = Field(
+        default="llama-3.3-70b-versatile",
+        validation_alias=AliasChoices("LLM_STANDARD_MODEL"),
+    )
+    llm_heavy_model: str = Field(
+        default="gemini-2.5-flash",
+        validation_alias=AliasChoices("LLM_HEAVY_MODEL"),
+    )
+    llm_primary_provider: str = Field(
+        default="groq",
+        validation_alias=AliasChoices("LLM_PRIMARY_PROVIDER"),
+    )
+
     default_timezone: str = Field(
         default="Asia/Kolkata",
         validation_alias=AliasChoices("DEFAULT_TIMEZONE"),

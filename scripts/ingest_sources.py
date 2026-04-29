@@ -126,6 +126,29 @@ _MANIFEST_PATH = _repo_root() / "scripts" / "sources_manifest.json"
 _INDEX_DIR = _repo_root() / "backend" / "app" / "rag" / "index"
 
 
+async def _render_html_with_playwright(url: str) -> str | None:
+    """Fetch fully rendered HTML using Playwright (optional).
+
+    Groww MF pages often populate NAV/AUM/holdings via client-side API calls.
+    This helper enables deterministic extraction without changing downstream code.
+    """
+    try:
+        from playwright.async_api import async_playwright  # type: ignore
+    except Exception:
+        return None
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            page = await browser.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=45_000)
+            html = await page.content()
+            await browser.close()
+            return html
+    except Exception:
+        return None
+
+
 def _load_manifest() -> list[dict]:
     if not _MANIFEST_PATH.exists():
         raise SystemExit(f"sources_manifest.json not found at {_MANIFEST_PATH}")
@@ -181,6 +204,7 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
 
             scraped_docs: list[SourceDocument] = []
             scraped_metrics: list[Any] = []
+            use_playwright = os.getenv("USE_PLAYWRIGHT_RENDER", "").lower() in ("1", "true", "yes")
 
             async with httpx.AsyncClient(
                 timeout=25.0,
@@ -206,6 +230,13 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
                             continue
 
                         html = resp.text
+                        if use_playwright:
+                            rendered = await _render_html_with_playwright(url)
+                            if rendered and len(rendered) > len(html):
+                                html = rendered
+                                print(f"  INFO  {doc_id}: using Playwright-rendered HTML")
+                            else:
+                                print(f"  WARN  {doc_id}: Playwright render unavailable; using raw HTML")
                         print(f"  FETCH {doc_id}: {len(html):,} bytes fetched")
 
                         cleaned = clean_html_content(html)
