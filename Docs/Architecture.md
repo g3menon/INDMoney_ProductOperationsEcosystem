@@ -10,6 +10,10 @@ This project is the **Groww Product Operations Ecosystem**: a single integrated 
 
 The final system is **not** a merger of old repos. It is a **new integrated product** built in one repo, with selected logic patterns and modules ported from the previous projects.
 
+### Milestone (M1/M2/M3) to phase mapping
+
+The capstone milestones above are an origin story; the **execution plan** for this repo is the **Phase 1–8** sequence in `Docs/Rules.md`, with failure coverage in `Docs/Failures&EdgeCases.md`. A per-milestone breakdown is recorded in `Docs/ProblemStatement.md` (section **1.1 Milestones (M1–M3) vs repo execution phases (1–8)**); use that table when scoping an architecture enhancement to a specific milestone.
+
 ## Core product goal
 
 Build a single dashboard with **3 tabs**:
@@ -37,7 +41,7 @@ The dashboard should support:
 - Frontend: **Next.js + TypeScript + Tailwind + shadcn/ui**
 - Backend: **FastAPI (Python)**
 - Frontend deployment: **Vercel**
-- Backend deployment: **Render**
+- Backend deployment: **Railway** (FastAPI container; see `railway.toml` + root `Dockerfile`)
 - Primary database / source of truth: **Supabase Postgres**
 - Google auth model: **Google OAuth only**
 - **No Google service account**
@@ -90,7 +94,7 @@ Next.js Frontend (Vercel)
   |-- Badge UI
   |
   v
-FastAPI Backend (Render)
+FastAPI Backend (Railway)
   |
   |-- API Routers
   |-- Service / Workflow Layer
@@ -731,7 +735,7 @@ Generate a PM-facing pulse summarizing review or issue trends, and optionally se
 
 ### Pulse generation flow
 
-After **raw** data is gathered (Playwright Play Store job and/or other issue inputs), the following steps are **all required** in order before a stored Weekly Pulse is considered valid for PM surfaces (skipping a step is a defect unless an explicit, documented degraded mode is in use):
+The compact canonical pipeline order is also in `Deliverables/Resources.md` (**Weekly Pulse from Play Store (order)**); the full step-by-step semantics live here. After **raw** data is gathered (Playwright Play Store job and/or other issue inputs), the following steps are **all required** in order before a stored Weekly Pulse is considered valid for PM surfaces (skipping a step is a defect unless an explicit, documented degraded mode is in use):
 
 1. **Persist raw** — append-only or versioned raw payloads for replay and debugging.  
 2. **Cleaning** — strip HTML/markup and boilerplate, normalize encoding and whitespace, remove non-text noise so downstream steps see plain review text.  
@@ -1207,44 +1211,35 @@ project-root/
 │   │       ├── booking_checks.py
 │   │       └── run_all.py
 │   ├── requirements.txt
-│   └── render.yaml
+│   └── tests/
 │
-├── shared/
-│   ├── prompts/
-│   ├── source_manifest/
-│   │   └── source_manifest.csv
-│   ├── fixtures/
-│   └── api-contracts/
+├── shared/                                  # optional shared assets (prompts, fixtures, contracts)
 │
 ├── infra/
-│   ├── architecture/
-│   │   ├── architecture.md
-│   │   ├── db-schema.md
-│   │   ├── auth-matrix.md
-│   │   ├── scheduler-spec.md
-│   │   └── phase-plan.md
-│   ├── vercel/
-│   ├── render/
 │   └── supabase/
+│       └── phase1_phase2_schema.sql         # canonical SQL for Phase 1 + Phase 2
 │
 ├── scripts/
-│   ├── seed_dev_data.py
-│   ├── fetch_groww_playstore_reviews.py   # Playwright: Groww Play Store listing
-│   ├── ingest_sources.py
-│   ├── normalize_collected_text.py        # optional: shared normalization entrypoint
-│   ├── rebuild_index.py
-│   └── run_pulse.py
+│   ├── fetch_groww_playstore_reviews.py     # Playwright: Groww Play Store listing
+│   ├── ingest_sources.py                    # raw → cleaning → normalization → persist
+│   ├── rebuild_index.py                     # MF/fee chunk + index rebuild (Phase 4)
+│   └── run_pulse.py                         # optional CLI to trigger pulse generation
 │
 ├── .github/
-│   └── workflows/
-│       ├── ci.yml
-│       └── weekly-pulse.yml
+│   └── workflows/                           # CI + weekly-pulse cron when Phase 7 is on
 │
+├── Docs/                                    # canonical project docs (architecture, rules, runbook)
+├── Deliverables/                            # capstone deliverables and Evals/ artifacts
+│
+├── Dockerfile                               # backend container image (used by Railway)
+├── railway.toml                             # Railway deploy config (build + startCommand)
 ├── .env.example
 └── README.md
 ```
 
-*Note: This repo also uses `Docs/` for project documentation; keep architecture docs in `Docs/Architecture.md` in addition to (or as the source for) any copy under `infra/architecture/`.
+*Notes:*
+- *The deployment artifacts at the repo root (`Dockerfile`, `railway.toml`) describe the **Railway** backend deployment. A legacy `backend/render.yaml` may still exist from earlier iterations but is **not** the active deploy config.*
+- *Architecture-level decisions live in this file (`Docs/Architecture.md`); keep any other architecture-style copy elsewhere derived from this document.*
 
 ---
 
@@ -1319,8 +1314,10 @@ After each phase (Phase 1 through Phase 8), the team must complete this gate **b
 1. Run implementation tests for the completed phase.
 2. Fix any runtime, integration, or validation errors found.
 3. Run phase-specific evals for the completed phase.
-4. Record the phase score.
-5. If the score is **below 85%**, make changes and re-run tests/evals until score is **at least 85%**.
+   - **Automated evals** are available today for **phases 1, 2, and 3** via `cd backend; python -m app.evals.run_all --phase <n>` (see `backend/app/evals/run_all.py`).
+   - **Phases 4–7** use the **manual acceptance gate** in `Docs/Runbook.md` → *End-to-end test (text-only, before voice / Phase 8)* and the per-phase READMEs under `Deliverables/Evals/phase-<n>/` until automated harnesses are added.
+4. Record the phase score (or, for manual gates, the per-phase artifact in `Deliverables/Evals/phase-<n>/`).
+5. If the automated score is **below 85%**, make changes and re-run tests/evals until score is **at least 85%**. For manual gates, the phase is closed only when its Definition of Done in `Docs/Rules.md` is satisfied and recorded.
 6. Only then proceed to the next phase.
 
 **Artifact requirement:** every phase must produce an eval artifact under:
@@ -1465,5 +1462,5 @@ The project is considered complete when:
 - badge counts update correctly across tabs
 - all core state is persisted in Supabase
 - Google Sheets, if used, is only a downstream export
-- the app is deployable on Vercel + Render
+- the app is deployable on Vercel (frontend) + Railway (backend) with Supabase Postgres
 - architecture remains modular and debuggable
