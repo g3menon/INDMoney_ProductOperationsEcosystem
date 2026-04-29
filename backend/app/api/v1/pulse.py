@@ -9,6 +9,7 @@ from app.repositories.subscription_repository import get_subscription_repository
 from app.schemas.common import APIEnvelope
 from app.schemas.pulse import (
     PulseGenerateRequest,
+    SendNowResult,
     SubscribeRequest,
     SubscribeResult,
     WeeklyPulse,
@@ -38,6 +39,35 @@ async def history(limit: int = 20) -> APIEnvelope[list[WeeklyPulse]]:
     settings = get_settings()
     rows = await get_pulse_history(settings, limit=limit)
     return APIEnvelope(success=True, message="pulse_history", data=rows)
+
+
+@router.post("/send-now", response_model=APIEnvelope[SendNowResult])
+async def send_now() -> APIEnvelope[SendNowResult]:
+    """Trigger an immediate pulse send to all active subscribers.
+
+    Phase 2: loads latest pulse and active subscriber list, returns a mock
+    queued response. Actual Gmail MCP delivery is wired in Phase 7.
+    """
+    settings = get_settings()
+    pulse = await get_current_pulse(settings)
+    pulse_id = pulse.pulse_id if pulse else "no-pulse"
+
+    sub_repo = get_subscription_repository(settings)
+    # Retrieve active subscriber emails; fall back gracefully if none.
+    try:
+        active_emails: list[str] = []
+        if hasattr(sub_repo, "active"):
+            active_emails = list(sub_repo.active)  # type: ignore[attr-defined]
+        else:
+            active_emails = []
+    except Exception:
+        active_emails = []
+
+    return APIEnvelope(
+        success=True,
+        message="pulse_send_queued",
+        data=SendNowResult(sent_to=active_emails, pulse_id=pulse_id, status="queued"),
+    )
 
 
 @router.post("/subscribe", response_model=APIEnvelope[SubscribeResult])

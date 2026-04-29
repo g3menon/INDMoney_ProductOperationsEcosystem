@@ -15,10 +15,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 from datetime import datetime
 from typing import Any
 
 from playwright.sync_api import sync_playwright
+
+logger = logging.getLogger(__name__)
 
 
 GROWW_PLAYSTORE_URL = "https://play.google.com/store/apps/details?id=com.nextbillion.groww&hl=en_IN"
@@ -269,6 +272,9 @@ def collect_reviews(limit: int = 50) -> list[dict[str, Any]]:
         browser.close()
 
     rows = rows[:limit]
+    # Hard cap: never persist more than 200 reviews regardless of --limit.
+    rows = rows[:200]
+    logger.info("review_collection_complete", extra={"count": len(rows), "capped_at": 200})
     _log(f"Collected {len(rows)} reviews (requested={limit}).")
     if len(rows) < limit:
         _log(f"Only {len(rows)} reviews available/retrievable; target was {limit}.")

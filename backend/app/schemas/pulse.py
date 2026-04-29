@@ -80,3 +80,9 @@ class SubscribeResult(BaseModel):
     email: str
     status: Literal["subscribed", "unsubscribed"]
     updated_at: datetime = Field(default_factory=lambda: datetime.utcnow())
+
+
+class SendNowResult(BaseModel):
+    sent_to: list[str]
+    pulse_id: str
+    status: str

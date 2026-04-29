@@ -1,3 +1,5 @@
+# DEPRECATED — Railway is the active deploy target.
+# See railway.toml at repo root. This file is kept for reference only.
 services:
   - type: web
     name: indmoney-backend
