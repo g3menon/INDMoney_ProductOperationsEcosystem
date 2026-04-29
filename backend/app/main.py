@@ -51,6 +51,7 @@ async def lifespan(_app: FastAPI):
     from app.rag.metrics_store import load_metrics_store_from_default
 
     await load_metrics_store_from_default()
+    logger.info("mf_metrics_store_startup_complete", extra={"correlation_id": "-"})
 
     yield
 

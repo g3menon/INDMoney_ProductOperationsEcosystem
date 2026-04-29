@@ -27,7 +27,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SKIP_SUPABASE = os.getenv("INGEST_SKIP_SUPABASE", "").lower() in (
+# Supabase writes are opt-in.  Set ENABLE_SUPABASE_WRITE=true to persist
+# source_documents and mf_fund_metrics rows during ingestion.
+# Default is false so local dev runs never require a live Supabase project.
+_ENABLE_SUPABASE_WRITE = os.getenv("ENABLE_SUPABASE_WRITE", "").lower() in (
     "1", "true", "yes"
 )
 
@@ -201,11 +204,15 @@ class SupabaseMFRepository:
 
 
 def get_mf_repository(settings: "Settings") -> "MFRepository":
-    """Return the appropriate MF repository based on env configuration."""
-    if _SKIP_SUPABASE:
+    """Return the appropriate MF repository based on env configuration.
+
+    Supabase writes are opt-in via ENABLE_SUPABASE_WRITE=true.
+    Falls back to in-memory silently if Supabase init fails.
+    """
+    if not _ENABLE_SUPABASE_WRITE:
         logger.info(
             "mf_repository_in_memory",
-            extra={"reason": "INGEST_SKIP_SUPABASE is set"},
+            extra={"reason": "ENABLE_SUPABASE_WRITE not set (opt-in required)"},
         )
         return InMemoryMFRepository()
     try:

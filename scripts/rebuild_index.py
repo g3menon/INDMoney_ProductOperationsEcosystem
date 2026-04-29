@@ -236,6 +236,36 @@ async def _build_index(
         json.dumps(metrics_records, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     print(f"[write] mf_metrics.json -> {_METRICS_PATH} ({len(metrics_records)} record(s))")
+
+    # ── Optional Supabase upsert ────────────────────────────────────────────
+    enable_supabase = os.getenv("ENABLE_SUPABASE_WRITE", "").lower() in ("1", "true", "yes")
+    if not enable_supabase:
+        print("[supabase] Skipped (set ENABLE_SUPABASE_WRITE=true to persist to Supabase).")
+    else:
+        print("[supabase] ENABLE_SUPABASE_WRITE=true — upserting to Supabase...")
+        from app.core.config import get_settings
+        from app.repositories.mf_repository import get_mf_repository
+        from app.schemas.rag import MFFundMetrics, SourceDocument
+
+        try:
+            sb_settings = get_settings()
+            repo = get_mf_repository(sb_settings)
+
+            async def _upsert_all() -> None:
+                for doc in docs:
+                    await repo.upsert_source_document(doc)
+                for m_dict in metrics_records:
+                    try:
+                        metrics_obj = MFFundMetrics.model_validate(m_dict)
+                        await repo.upsert_fund_metrics(metrics_obj)
+                    except Exception as exc:
+                        print(f"  WARN  {m_dict.get('doc_id', '?')}: metrics upsert failed — {exc}")
+
+            asyncio.run(_upsert_all())
+            print(f"[supabase] Upserted {len(docs)} source document(s) and {len(metrics_records)} metric record(s).")
+        except Exception as exc:
+            print(f"[supabase] WARN: Supabase write failed ({exc}); local index files are intact.")
+
     print("\nDone. Restart the backend server to load the updated indexes.")
 
 

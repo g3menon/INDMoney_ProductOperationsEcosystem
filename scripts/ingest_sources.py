@@ -280,12 +280,12 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
     metrics_path.write_text(
         json.dumps(metrics_list, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    print(f"\n[persist] mf_metrics.json → {metrics_path} ({len(metrics_list)} record(s))")
+    print(f"\n[persist] mf_metrics.json -> {metrics_path} ({len(metrics_list)} record(s))")
 
     # ── Optional Supabase persistence ────────────────────────────────────────
-    skip_supabase = os.getenv("INGEST_SKIP_SUPABASE", "").lower() in ("1", "true", "yes")
-    if skip_supabase:
-        print("[persist] INGEST_SKIP_SUPABASE set — skipping Supabase writes.")
+    enable_supabase = os.getenv("ENABLE_SUPABASE_WRITE", "").lower() in ("1", "true", "yes")
+    if not enable_supabase:
+        print("[persist] Supabase writes skipped (set ENABLE_SUPABASE_WRITE=true to enable).")
     else:
         from app.core.config import get_settings
         from app.repositories.mf_repository import get_mf_repository

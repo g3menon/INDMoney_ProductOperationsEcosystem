@@ -19,9 +19,8 @@ from app.schemas.rag import MFFundMetrics
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_METRICS_PATH = str(
-    Path(__file__).parent / "index" / "mf_metrics.json"
-)
+_INDEX_PATH = Path(__file__).parent / "index" / "mf_metrics.json"
+_FIXTURE_PATH = Path(__file__).parent / "fixtures" / "mf_metrics.json"
 
 _TOKENIZE = re.compile(r"[a-z0-9]+")
 
@@ -69,22 +68,31 @@ class MFMetricsStore:
 
     @classmethod
     def load_default(cls) -> "MFMetricsStore | None":
-        try:
-            return cls.load(_DEFAULT_METRICS_PATH)
-        except FileNotFoundError:
-            logger.warning(
-                "mf_metrics_index_missing",
-                extra={
-                    "path": _DEFAULT_METRICS_PATH,
-                    "hint": "run scripts/rebuild_index.py to generate mf_metrics.json",
-                },
-            )
-            return None
-        except Exception as exc:
-            logger.error(
-                "mf_metrics_store_load_error", extra={"error": str(exc)}
-            )
-            return None
+        """Try index path first, then fall back to fixture.
+
+        This ensures the store is always populated in local dev environments
+        where rebuild_index.py has not been run yet.
+        """
+        for path in (_INDEX_PATH, _FIXTURE_PATH):
+            if path.exists():
+                try:
+                    store = cls.load(str(path))
+                    source = "index" if path == _INDEX_PATH else "fixture"
+                    logger.info(
+                        "mf_metrics_store_loaded_from",
+                        extra={"source": source, "path": str(path)},
+                    )
+                    return store
+                except Exception as exc:
+                    logger.error(
+                        "mf_metrics_store_load_error",
+                        extra={"path": str(path), "error": str(exc)},
+                    )
+        logger.warning(
+            "mf_metrics_index_and_fixture_both_missing",
+            extra={"hint": "run scripts/rebuild_index.py to generate mf_metrics.json"},
+        )
+        return None
 
     # ------------------------------------------------------------------
     # Lookups
