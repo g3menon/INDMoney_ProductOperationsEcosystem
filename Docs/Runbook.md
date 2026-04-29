@@ -12,7 +12,7 @@ Use it during:
 ## System map
 
 - **Frontend:** Next.js on Vercel
-- **Backend:** FastAPI on Render
+- **Backend:** FastAPI on Railway
 - **Database:** Supabase
 - **LLM providers:** Gemini (**`gemini-2.5-flash`** by default) and Groq, each with **primary + fallback** API keys (`Docs/Architecture.md`)
 - **Canonical Groww URLs & Playwright rules:** `Deliverables/Resources.md`
@@ -30,6 +30,50 @@ Keep these aligned:
 - `Deliverables/Resources.md`
 - `Docs/Runbook.md`
 - `.env.example`
+
+## Low-level interface index
+
+Use this section to jump from “what the runbook says” to the concrete API/DB/logging interfaces you need to verify.
+
+### Backend API endpoints (current v1 routers)
+All API routes are mounted under the `/api/v1` prefix (see `backend/app/api/v1/__init__.py`).
+
+FastAPI schema:
+- OpenAPI: `GET /openapi.json`
+- Swagger UI: `GET /docs`
+
+Implemented routers in this repo:
+- Health: [`backend/app/api/v1/health.py`](backend/app/api/v1/health.py) → `GET /api/v1/health`
+- Dashboard badges: [`backend/app/api/v1/dashboard.py`](backend/app/api/v1/dashboard.py) → `GET /api/v1/dashboard/badges`
+- Weekly pulse: [`backend/app/api/v1/pulse.py`](backend/app/api/v1/pulse.py)
+  - `POST /api/v1/pulse/generate`
+  - `GET /api/v1/pulse/current`
+  - `GET /api/v1/pulse/history`
+  - `POST /api/v1/pulse/subscribe`
+  - `POST /api/v1/pulse/unsubscribe`
+- Customer chat: [`backend/app/api/v1/chat.py`](backend/app/api/v1/chat.py)
+  - `POST /api/v1/chat/message`
+  - `GET /api/v1/chat/prompts`
+  - `GET /api/v1/chat/history/{session_id}`
+- Automated eval runner: [`backend/app/api/v1/evals.py`](backend/app/api/v1/evals.py) → `POST /api/v1/evals/run` (supports suites: phase1/phase2/phase3)
+
+Booking/Advisor workflow endpoints are specified in `Docs/Rules.md` (phases 5–6) but may not yet be fully wired as active v1 routers in this codebase.
+
+### Supabase schema scripts
+- Initial schema (Phase 1–2): `infra/supabase/phase1_phase2_schema.sql`
+
+### Status/enums and response envelope
+- Standard API envelope + error shape: [`backend/app/schemas/common.py`](backend/app/schemas/common.py) (`APIEnvelope`, `ErrorDetail`)
+- Weekly pulse models (including degraded state and subscription status literals): [`backend/app/schemas/pulse.py`](backend/app/schemas/pulse.py)
+
+### Correlation IDs and logging conventions
+- Correlation middleware: [`backend/app/main.py`](backend/app/main.py)
+  - Reads header: `X-Correlation-ID` (and `x-correlation-id`)
+  - Writes response header: `X-Correlation-ID`
+  - Stores in request context var for downstream log formatting
+- Log formatting with correlation id: [`backend/app/core/logging.py`](backend/app/core/logging.py)
+  - Formatter includes `cid=<correlation_id>`
+- Correlation context var: [`backend/app/core/context.py`](backend/app/core/context.py)
 
 ## Required env groups
 
@@ -72,7 +116,6 @@ DEFAULT_TIMEZONE=Asia/Kolkata
 ### GitHub Actions
 ```env
 SCHEDULER_SHARED_SECRET=
-BACKEND_SCHEDULER_URL=
 ```
 
 ## Startup sequence
@@ -105,10 +148,10 @@ Use this when refreshing **Weekly Pulse** inputs or **RAG** MF/fee indexes.
    - Spot-check one retrieved chunk in dev: no raw HTML, citation metadata present.
 
 4. **Pulse**  
-   - Run pulse generation only after the full chain succeeded for the intended window: **raw persist → cleaning → normalization** → (optional chunk) → **theme generation (Groq)** → **pulse generation (Gemini)** → validate → store. Or explicitly accept an **empty-ingestion** degraded mode documented in logs.
+   - Run pulse generation only after the full chain succeeded for the intended window, following the canonical pipeline order in `Deliverables/Resources.md` (**Weekly Pulse from Play Store (order)**). Or explicitly accept an **empty-ingestion** degraded mode documented in logs.
 
 ### Production
-1. Confirm Render env vars are correct.
+1. Confirm Railway env vars are correct.
 2. Confirm Vercel env vars are correct.
 3. Deploy backend.
 4. Verify health endpoint.
@@ -159,8 +202,8 @@ Use this checklist to validate **the whole implementation through Phase 7** with
 ### Groww Play Store ingestion or Playwright job fails
 Check:
 - job logs (selector errors, timeout, zero parse count)
-- Playwright and browser versions match CI or Render image
-- network egress from runner (local, Render, or GitHub Actions)
+- Playwright and browser versions match CI or Railway image
+- network egress from runner (local, Railway, or GitHub Actions)
 
 Fix:
 - update selectors or wait conditions per `Docs/Failures&EdgeCases.md`
@@ -181,7 +224,7 @@ Fix:
 
 ### Backend fails to boot
 Check:
-- Render logs
+- Railway logs
 - missing env vars
 - config validation
 - import/runtime errors
@@ -242,7 +285,6 @@ Fix:
 ### Scheduler fails or runs twice
 Check:
 - `SCHEDULER_SHARED_SECRET`
-- `BACKEND_SCHEDULER_URL`
 - GitHub Actions logs
 - backend duplicate protection
 
@@ -263,7 +305,7 @@ Steps:
 4. Investigate bad deploy after service is restored.
 
 ### Backend rollback
-Use when a Render deploy breaks API or integrations.
+Use when a Railway deploy breaks API or integrations.
 
 Steps:
 1. Revert to a known good commit/config.

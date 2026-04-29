@@ -233,7 +233,7 @@ The system combines:
 | P2.4 | **Product tab must handle loading, empty, partial, and error states.** | No blank or brittle pulse dashboard states. |
 | P2.5 | **Pulse output quality must prioritize actionability over verbosity.** | Keep PM-facing summaries concise, clear, and decision-useful. |
 | P2.6 | **Groww Play Store reviews are ingested via Playwright as a documented job.** | Collect reviews up to **8 weeks** lookback only; job writes **raw** records first; failures are logged with correlation IDs. |
-| P2.7 | **Mandatory pulse pipeline after raw collection.** | Do not call theme or pulse LLMs on raw Playwright payloads. Apply **cleaning** then **normalization** (dedupe, spam/low-signal filtering, PII minimization, policy filters per product spec—e.g. English-only, min length, helpfulness weighting, rating balance including **4:1** issues/improvements vs positive sentiment targets where configured) before **theme generation (Groq)** and **pulse generation (Gemini 2.5 Flash)**. Groq/Gemini must only see bounded, cleaned text. |
+| P2.7 | **Mandatory pulse pipeline after raw collection.** | Do not call theme or pulse LLMs on raw Playwright payloads. Apply **cleaning** then **normalization** (dedupe, spam/low-signal filtering, PII minimization, policy filters per product spec—e.g. English-only, min length, helpfulness weighting, rating balance including **4:1** issues/improvements vs positive sentiment targets where configured) before **theme generation (Groq)** and **pulse generation (Gemini 2.5 Flash)**, following the canonical order in `Deliverables/Resources.md` (**Weekly Pulse from Play Store (order)**). Groq/Gemini must only see bounded, cleaned text. |
 | P2.8 | **No PII in collected reviews.** | Do not store reviewer names, phone numbers, Aadhaar, or other PII; store **review_id** (and allowed fields such as device type) for database reference only. |
 
 **Definition of Done**
@@ -242,7 +242,7 @@ The system combines:
 - Pulse history is retrievable.
 - Subscribe and unsubscribe flows work.
 - Groww Play Store review collection and normalization path is demonstrable (manual or scheduled run).
-- One full run demonstrates **cleaning → normalization → theme generation → pulse generation → persisted pulse** (or documented empty-ingestion degraded mode).
+- One full run demonstrates the canonical weekly pulse pipeline order in `Deliverables/Resources.md` (**Weekly Pulse from Play Store (order)**) (or documented empty-ingestion degraded mode).
 
 ### Phase 3 — Customer text chat foundation
 

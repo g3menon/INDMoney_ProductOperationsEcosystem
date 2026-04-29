@@ -11,6 +11,17 @@ You have built a RAG Chat Bot (M1), a Review Analyst (M2), and an AI Voice Sched
 **Implementation note (this repo):** The structured **fee explainer** (e.g. six-bullet fee answers) is exposed only on **Customer** and **Advisor**-facing flows, aligned with `Docs/UserFlow.md`. The **Product** tab focuses on pulse, themes, quotes, and analytics—not standalone fee-explainer blocks.
 
 ---
+## 1.1 Milestones (M1–M3) vs repo execution phases (1–8)
+
+The sections below describe the original capstone milestones (M1–M3). For any architecture enhancement work, the **incremental execution plan and acceptance gates** are defined by `Docs/Rules.md` phases **1–8** (with failure coverage in `Docs/Failures&EdgeCases.md`).
+
+| Milestone | Capstone intent | Implemented primarily by `Docs/Rules.md` phases |
+|---|---|---|
+| **M1 — Mutual fund FAQs (facts-only Q&A)** | MF Q&A, grounded answers, refusal for out-of-scope requests | **Phase 3** (Customer text chat foundation) + **Phase 4** (RAG + grounded hybrid Q&A) |
+| **M2 — Review pulse + fee explainer** | Weekly pulse from reviews; structured fee explainer using source corpus; internal notes/email drafts via governed actions | **Phase 2** (Weekly Pulse backend + Product tab) + **Phase 4** (fee + hybrid retrieval and grounded answers) (+ parts of **Phase 7** for outbound governed side effects) |
+| **M3 — Voice scheduler + booking** | Pre-booking appointment scheduler (booking code, advisor confirmation, calendar/email drafts); voice adapter parity | **Phase 5** (Booking + customer workflow state) + **Phase 6** (Advisor HITL approval) + **Phase 7** (external integrations) + **Phase 8** (Voice adapter parity) |
+
+---
 
 ## 2. The "unified product" architecture
 
@@ -65,7 +76,7 @@ Run and document **at least three** evaluation types on the final system.
 
 ## 4. Technical constraints
 
-- **Single entry point:** One UI (Streamlit, Gradio, or a master notebook) where users access all three pillars.
+- **Single entry point:** the integrated Groww dashboard (Next.js on Vercel + FastAPI backend) where users access the three role surfaces (Customer / Product / Advisor) and the workflows are orchestrated by the backend.
 - **No PII:** Continue masking sensitive data. Use `[REDACTED]` for simulated user names.
 - **State persistence:** The **Booking Code** (M3) must be visible in the **Notes/Doc** (M2) to show the systems are connected.
 

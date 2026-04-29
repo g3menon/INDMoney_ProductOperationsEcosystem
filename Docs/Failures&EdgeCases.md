@@ -24,7 +24,7 @@ These principles apply to all phases:
 
 ## Data collection, normalization, chunking, and indexing (Groww)
 
-This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pulse) and **Phase 4** (scraped MF/fee and other docs → RAG). Play Store ingestion uses **Playwright**; MF/fee content uses approved scrapers or imports. Both paths must persist or archive **raw** output where practical, then apply **cleaning** and **normalization** before **chunking** and downstream use (pulse preprocessing or BM25/embedding indexes). For Weekly Pulse specifically, **theme generation** and **pulse generation** LLM steps must run only after that cleaned + normalized stage (see `Docs/Architecture.md` Weekly pulse architecture).
+This section applies across **Phase 2** (Groww Play Store reviews → Weekly Pulse) and **Phase 4** (scraped MF/fee and other docs → RAG). Play Store ingestion uses **Playwright**; MF/fee content uses approved scrapers or imports. Both paths must persist or archive **raw** output where practical, then apply **cleaning** and **normalization** before **chunking** and downstream use (pulse preprocessing or BM25/embedding indexes). For Weekly Pulse specifically, follow the canonical pipeline order in `Deliverables/Resources.md` (**Weekly Pulse from Play Store (order)**), where **theme generation** and **pulse generation** run only after cleaning + normalization.
 
 ### Failures and edge cases
 

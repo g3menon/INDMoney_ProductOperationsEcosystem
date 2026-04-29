@@ -1,6 +1,6 @@
 # UI — Groww Product Operations Ecosystem
 
-**Canonical URLs, fund list, Play Store rules, and reference design links** live in **`Deliverables/Resources.md`**. Keep UI copy and engineering in sync with that file. Also use some Groww brabding colours along with this to have son=me sync
+**Canonical URLs, fund list, Play Store rules, and reference design links** live in **`Deliverables/Resources.md`**. Keep UI copy and engineering in sync with that file. Also use some Groww branding colors so the design stays consistent.
 
 ## Reference UI (visual inspiration)
 
