@@ -1,0 +1,54 @@
+{
+  "version": "phase1-v1",
+  "total_weight": 100.0,
+  "earned_weight": 100.0,
+  "score": 100.0,
+  "checks": [
+    {
+      "id": "health_envelope",
+      "weight": 13.0,
+      "passed": true
+    },
+    {
+      "id": "health_safe_settings",
+      "weight": 13.0,
+      "passed": true
+    },
+    {
+      "id": "badges_envelope",
+      "weight": 13.0,
+      "passed": true
+    },
+    {
+      "id": "badges_shape",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "supabase_flag_boolean",
+      "weight": 14.0,
+      "passed": true
+    },
+    {
+      "id": "openapi_paths",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "correlation_id",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "root_route",
+      "weight": 7.0,
+      "passed": true
+    },
+    {
+      "id": "cors_preflight",
+      "weight": 10.0,
+      "passed": true
+    }
+  ],
+  "generated_at": "2026-04-29T07:22:15.561696+00:00"
+}

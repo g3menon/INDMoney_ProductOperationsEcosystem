@@ -15,7 +15,7 @@ router = APIRouter(prefix="/evals")
 
 
 class EvalRunRequest(BaseModel):
-    suite: Literal["phase1", "phase2"] = Field(default="phase1", description="Eval suite to run.")
+    suite: Literal["phase1", "phase2", "phase3"] = Field(default="phase1", description="Eval suite to run.")
 
 
 @router.post("/run", response_model=APIEnvelope[dict[str, Any]])
@@ -39,9 +39,20 @@ async def run_evals(body: EvalRunRequest | None = None) -> APIEnvelope[dict[str,
             data=report.model_dump(),
         )
 
+    if body.suite == "phase3":
+        from app.evals.phase3_checks import Phase3EvalReport, run_phase3_evals
+
+        report = run_phase3_evals()
+        passed = report.score >= 85.0
+        return APIEnvelope(
+            success=passed,
+            message="eval_complete" if passed else "eval_below_threshold",
+            data=report.model_dump(),
+        )
+
     return APIEnvelope(
         success=False,
         message="unsupported_suite",
-        data={"supported": ["phase1", "phase2"]},
+        data={"supported": ["phase1", "phase2", "phase3"]},
         errors=[],
     )
