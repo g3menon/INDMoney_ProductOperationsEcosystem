@@ -47,6 +47,11 @@ async def lifespan(_app: FastAPI):
 
     await load_rag_index_from_default()
 
+    # Phase 4 extended: load MF metrics store from disk (safe if absent; degrades to RAG-only).
+    from app.rag.metrics_store import load_metrics_store_from_default
+
+    await load_metrics_store_from_default()
+
     yield
 
 

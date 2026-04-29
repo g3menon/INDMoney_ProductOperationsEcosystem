@@ -59,3 +59,45 @@ create table if not exists public.retrieval_logs (
 
 create index if not exists retrieval_logs_session_id_idx on public.retrieval_logs(session_id);
 create index if not exists retrieval_logs_created_at_idx on public.retrieval_logs(created_at desc);
+
+-- =========================
+-- Phase 4 extended: structured MF fund metrics table
+-- Additive migration — no existing tables modified.
+-- =========================
+
+-- Structured mutual-fund metrics extracted from Groww MF pages.
+-- Fields unavailable from static HTML (nav, aum_cr, returns, holdings, etc.)
+-- are nullable and populated when Playwright-rendered HTML is available.
+create table if not exists public.mf_fund_metrics (
+  doc_id text primary key references public.source_documents(doc_id) on delete cascade,
+  fund_name text not null,
+  amc text,
+  category text,
+  sub_category text,
+  plan text,
+  option text,
+  nav numeric(12,4),
+  nav_date date,
+  aum_cr numeric(16,2),
+  expense_ratio_pct numeric(6,4),
+  exit_load_pct numeric(6,4),
+  exit_load_window_days int,
+  exit_load_description text,
+  risk_level text,
+  rating text,
+  benchmark text,
+  min_sip_amount numeric(12,2),
+  min_lumpsum_amount numeric(12,2),
+  returns jsonb,           -- MFReturns serialised as JSON object
+  top_holdings jsonb,      -- list[MFHolding] serialised as JSON array
+  sector_allocation jsonb, -- list[MFSectorAlloc] serialised as JSON array
+  asset_allocation jsonb,  -- dict[str, float] serialised as JSON object
+  fund_objective text,
+  scraped_at timestamptz not null,
+  last_checked date not null,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists mf_fund_metrics_amc_idx on public.mf_fund_metrics(amc);
+create index if not exists mf_fund_metrics_category_idx on public.mf_fund_metrics(category);
+create index if not exists mf_fund_metrics_updated_at_idx on public.mf_fund_metrics(updated_at desc);

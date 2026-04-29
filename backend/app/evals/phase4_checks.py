@@ -131,7 +131,8 @@ def _intent_classifier_routes_correctly() -> bool:
         cases = [
             ("Explain the exit load and expense ratio charges", "fee_query"),
             ("Tell me about Motilal Oswal Midcap Fund", "mf_query"),
-            ("What is the expense ratio of the Motilal Nifty Midcap index fund?", "hybrid_query"),
+            ("What is the expense ratio of the Motilal Nifty Midcap index fund?", "direct_metric_query"),
+            ("What is the expense ratio and how does this Motilal fund compare?", "direct_metric_query"),
             ("I want to book an appointment with the advisor", "booking_intent"),
             ("Should I invest in this fund now?", "disallowed"),
         ]

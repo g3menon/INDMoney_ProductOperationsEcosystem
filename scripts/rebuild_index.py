@@ -1,8 +1,13 @@
 """
-Phase 4: Rebuild the RAG chunk index from the MF/fee corpus.
+Phase 4: Rebuild the RAG chunk index and MF metrics index from the MF/fee corpus.
 
-Reads source documents (fixture or scraped), chunks them, optionally generates
-Gemini embeddings, and writes the result to backend/app/rag/index/chunks.json.
+URLs are read from scripts/sources_manifest.json (single source of truth — no
+hardcoded URL lists in this file).
+
+Reads source documents (fixture or scraped), runs structured extraction, chunks
+them, optionally generates Gemini embeddings, and writes:
+  - backend/app/rag/index/chunks.json    (searchable RAG chunk index)
+  - backend/app/rag/index/mf_metrics.json (structured metrics index for direct lookup)
 
 Usage:
   # Use fixture data (no network required):
@@ -26,6 +31,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 
 def _repo_root() -> Path:
@@ -38,35 +44,46 @@ def _ensure_imports() -> None:
         sys.path.insert(0, str(backend))
 
 
-_FIXTURE_PATH = _repo_root() / "backend" / "app" / "rag" / "fixtures" / "mf_corpus.json"
-_INDEX_PATH = _repo_root() / "backend" / "app" / "rag" / "index" / "chunks.json"
-
-_MF_URLS = [
-    "https://groww.in/mutual-funds/motilal-oswal-most-focused-midcap-30-fund-direct-growth",
-    "https://groww.in/mutual-funds/motilal-oswal-most-focused-multicap-35-fund-direct-growth",
-    "https://groww.in/mutual-funds/motilal-oswal-nifty-midcap-150-index-fund-direct-growth",
-    "https://groww.in/mutual-funds/hdfc-large-and-mid-cap-fund-direct-growth",
-    "https://groww.in/mutual-funds/hdfc-equity-fund-direct-growth",
-    "https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth",
-]
-
-_TITLES = {
-    "motilal-oswal-most-focused-midcap-30-fund-direct-growth": "Motilal Oswal Midcap Fund Direct Growth",
-    "motilal-oswal-most-focused-multicap-35-fund-direct-growth": "Motilal Oswal Flexi Cap Fund Direct Growth",
-    "motilal-oswal-nifty-midcap-150-index-fund-direct-growth": "Motilal Oswal Nifty Midcap 150 Index Fund Direct Growth",
-    "hdfc-large-and-mid-cap-fund-direct-growth": "HDFC Large and Mid Cap Fund Direct Growth",
-    "hdfc-equity-fund-direct-growth": "HDFC Flexi Cap Direct Plan Growth",
-    "hdfc-large-cap-fund-direct-growth": "HDFC Large Cap Fund Direct Growth",
-}
+_MANIFEST_PATH = _repo_root() / "scripts" / "sources_manifest.json"
+_FIXTURE_CORPUS_PATH = _repo_root() / "backend" / "app" / "rag" / "fixtures" / "mf_corpus.json"
+_FIXTURE_METRICS_PATH = _repo_root() / "backend" / "app" / "rag" / "fixtures" / "mf_metrics.json"
+_INDEX_DIR = _repo_root() / "backend" / "app" / "rag" / "index"
+_CHUNKS_PATH = _INDEX_DIR / "chunks.json"
+_METRICS_PATH = _INDEX_DIR / "mf_metrics.json"
 
 
-async def _scrape_document(url: str, today: str) -> "SourceDocument | None":
-    from app.rag.ingest import clean_html_content, normalize_document_content
+def _load_manifest() -> list[dict]:
+    if not _MANIFEST_PATH.exists():
+        raise SystemExit(f"sources_manifest.json not found at {_MANIFEST_PATH}")
+    raw = json.loads(_MANIFEST_PATH.read_text(encoding="utf-8"))
+    print(f"Manifest loaded: {len(raw)} source(s)")
+    return raw
+
+
+def _load_fixture_corpus() -> list["SourceDocument"]:
     from app.schemas.rag import SourceDocument
 
-    slug = url.rstrip("/").split("/")[-1]
-    title = _TITLES.get(slug, slug.replace("-", " ").title())
-    doc_id = slug[:40]
+    raw = json.loads(_FIXTURE_CORPUS_PATH.read_text(encoding="utf-8"))
+    return [SourceDocument.model_validate(r) for r in raw]
+
+
+def _load_fixture_metrics() -> list[dict]:
+    return json.loads(_FIXTURE_METRICS_PATH.read_text(encoding="utf-8"))
+
+
+async def _scrape_document(
+    entry: dict,
+    today: str,
+    scraped_at: str,
+) -> "tuple[SourceDocument | None, dict | None]":
+    from app.rag.ingest import clean_html_content, normalize_document_content
+    from app.rag.mf_extractor import extract_from_html
+    from app.schemas.rag import SourceDocument
+
+    url: str = entry["url"]
+    doc_id: str = entry["doc_id"]
+    title: str = entry["title"]
+    doc_type: str = entry.get("doc_type", "mutual_fund_page")
 
     try:
         import httpx  # type: ignore
@@ -78,35 +95,50 @@ async def _scrape_document(url: str, today: str) -> "SourceDocument | None":
                 "Chrome/120.0.0.0 Safari/537.36"
             )
         }
-        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
             resp = await client.get(url, headers=headers)
         if resp.status_code != 200:
-            print(f"  WARN: {url} → HTTP {resp.status_code}")
-            return None
-        cleaned = clean_html_content(resp.text)
+            print(f"  WARN  {doc_id}: HTTP {resp.status_code}")
+            return None, None
+
+        html = resp.text
+        cleaned = clean_html_content(html)
         normalized = normalize_document_content(cleaned)
+
         if len(normalized) < 200:
-            print(f"  WARN: {url} → too little content ({len(normalized)} chars); using fixture")
-            return None
-        print(f"  OK: {url} → {len(normalized)} chars")
-        return SourceDocument(
+            print(
+                f"  WARN  {doc_id}: {len(normalized)} chars after cleaning "
+                "(JS-rendered content not accessible); falling back to fixture if available"
+            )
+            return None, None
+
+        # Structured extraction.
+        metrics, report = extract_from_html(
+            html=html,
+            url=url,
+            doc_id=doc_id,
+            normalized_text=normalized,
+        )
+        print(
+            f"  OK    {doc_id}: {len(normalized):,} chars | "
+            f"{len(report.fields_extracted)} fields extracted | "
+            f"{len(report.js_only_missing)} JS-only missing"
+        )
+
+        doc = SourceDocument(
             doc_id=doc_id,
             url=url,
             title=title,
-            doc_type="mutual_fund_page",
+            doc_type=doc_type,  # type: ignore[arg-type]
             last_checked=today,
             content=normalized,
+            scraped_at=scraped_at,
         )
+        return doc, metrics.model_dump()
+
     except Exception as exc:
-        print(f"  ERROR: {url} → {exc}")
-        return None
-
-
-def _load_fixture() -> list["SourceDocument"]:
-    from app.schemas.rag import SourceDocument
-
-    raw = json.loads(_FIXTURE_PATH.read_text(encoding="utf-8"))
-    return [SourceDocument.model_validate(r) for r in raw]
+        print(f"  ERROR {doc_id}: {exc}")
+        return None, None
 
 
 async def _build_index(
@@ -114,43 +146,71 @@ async def _build_index(
     scrape: bool,
     embed: bool,
 ) -> None:
-    from datetime import date
+    from datetime import date, datetime, timezone
 
     today = date.today().isoformat()
+    scraped_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    manifest = _load_manifest()
 
     docs: list["SourceDocument"] = []
+    metrics_records: list[dict] = []
 
+    # ── Fixture pass ────────────────────────────────────────────────────────
     if use_fixture:
-        print(f"Loading fixture: {_FIXTURE_PATH}")
-        docs = _load_fixture()
-        print(f"  Loaded {len(docs)} fixture documents.")
+        print(f"\n[fixture] Loading corpus from {_FIXTURE_CORPUS_PATH}")
+        fixture_docs = _load_fixture_corpus()
+        print(f"  Loaded {len(fixture_docs)} fixture documents.")
 
+        print(f"[fixture] Loading metrics from {_FIXTURE_METRICS_PATH}")
+        fixture_metrics = _load_fixture_metrics()
+        print(f"  Loaded {len(fixture_metrics)} fixture metric records.")
+
+        docs.extend(fixture_docs)
+        metrics_records.extend(fixture_metrics)
+
+    # ── Scrape pass (takes precedence over fixture for the same doc_id) ────
     if scrape:
-        print(f"Scraping {len(_MF_URLS)} MF/fee pages...")
-        scraped = await asyncio.gather(*[_scrape_document(url, today) for url in _MF_URLS])
-        scraped_docs = [d for d in scraped if d is not None]
-        print(f"  Scraped {len(scraped_docs)} / {len(_MF_URLS)} pages.")
-        # Scraped docs take precedence over fixture docs for the same URL.
-        existing_urls = {d.url for d in scraped_docs}
-        fixture_only = [d for d in docs if d.url not in existing_urls]
-        docs = scraped_docs + fixture_only
+        print(f"\n[scrape] Fetching {len(manifest)} page(s)...")
+        scraped_pairs = await asyncio.gather(
+            *[_scrape_document(entry, today, scraped_at) for entry in manifest]
+        )
+
+        scraped_doc_ids: set[str] = set()
+        for sdoc, smetrics in scraped_pairs:
+            if sdoc is not None and smetrics is not None:
+                scraped_doc_ids.add(sdoc.doc_id)
+                # Replace fixture doc/metrics if scraped version is available.
+                docs = [d for d in docs if d.doc_id != sdoc.doc_id]
+                metrics_records = [m for m in metrics_records if m.get("doc_id") != sdoc.doc_id]
+                docs.append(sdoc)
+                metrics_records.append(smetrics)
+
+        print(
+            f"\n  Scraped {len(scraped_doc_ids)} / {len(manifest)} pages successfully."
+        )
+        if len(scraped_doc_ids) < len(manifest):
+            missing = [e["doc_id"] for e in manifest if e["doc_id"] not in scraped_doc_ids]
+            print(f"  Fixture fallback used for: {missing}")
 
     if not docs:
         print("ERROR: No documents to index. Use --use-fixture or --scrape.")
         sys.exit(1)
 
-    print(f"\nChunking {len(docs)} documents...")
+    # ── Chunk documents ──────────────────────────────────────────────────────
+    print(f"\n[chunk] Chunking {len(docs)} document(s)...")
     from app.rag.chunk import chunk_document
 
-    all_chunks: list["DocumentChunk"] = []
+    all_chunks: list[Any] = []
     for doc in docs:
         chunks = chunk_document(doc)
-        print(f"  {doc.title[:50]}: {len(chunks)} chunks")
+        print(f"  {doc.doc_id}: {len(chunks)} chunk(s)")
         all_chunks.extend(chunks)
-    print(f"Total chunks: {len(all_chunks)}")
+    print(f"  Total chunks: {len(all_chunks)}")
 
+    # ── Optional embedding ──────────────────────────────────────────────────
     if embed:
-        print("\nGenerating Gemini embeddings (this may take a while)...")
+        print("\n[embed] Generating Gemini embeddings...")
         from app.core.config import get_settings
         from app.rag.embeddings import EmbeddingIndex
 
@@ -163,27 +223,35 @@ async def _build_index(
             embedded = sum(1 for c in all_chunks if c.embedding is not None)
             print(f"  Embedded {embedded} / {len(all_chunks)} chunks.")
 
-    print(f"\nWriting index -> {_INDEX_PATH}")
-    _INDEX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # ── Write chunk index ───────────────────────────────────────────────────
+    _INDEX_DIR.mkdir(parents=True, exist_ok=True)
     payload = [c.model_dump() for c in all_chunks]
-    _INDEX_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Done. {len(all_chunks)} chunks saved to {_INDEX_PATH}")
+    _CHUNKS_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"\n[write] chunks.json -> {_CHUNKS_PATH} ({len(all_chunks)} chunk(s))")
+
+    # ── Write metrics index ─────────────────────────────────────────────────
+    _METRICS_PATH.write_text(
+        json.dumps(metrics_records, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    print(f"[write] mf_metrics.json -> {_METRICS_PATH} ({len(metrics_records)} record(s))")
+    print("\nDone. Restart the backend server to load the updated indexes.")
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Rebuild the Phase 4 RAG chunk index.")
+    ap = argparse.ArgumentParser(description="Rebuild the Phase 4 RAG chunk + metrics indexes.")
     ap.add_argument("--use-fixture", action="store_true", help="Load fixture MF corpus (no network).")
     ap.add_argument("--scrape", action="store_true", help="Scrape live MF/fee pages from Groww.")
     ap.add_argument("--embed", action="store_true", help="Generate Gemini embeddings for each chunk.")
     args = ap.parse_args()
 
     if not args.use_fixture and not args.scrape:
-        print("Specify at least --use-fixture or --scrape. Using --use-fixture as default.")
+        print("No source specified. Defaulting to --use-fixture.")
         args.use_fixture = True
 
     _ensure_imports()
 
-    # Minimal env for Settings validation.
     os.environ.setdefault("APP_ENV", "build")
     os.environ.setdefault("FRONTEND_BASE_URL", "http://localhost:3000")
     os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -192,7 +260,6 @@ def main() -> int:
     from app.core.config import clear_settings_cache
 
     clear_settings_cache()
-
     asyncio.run(_build_index(use_fixture=args.use_fixture, scrape=args.scrape, embed=args.embed))
     return 0
 
