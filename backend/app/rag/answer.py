@@ -55,7 +55,7 @@ _METRIC_FIELD_GROUPS: list[tuple[frozenset[str], str]] = [
     (frozenset(["benchmark"]), "benchmark"),
     (frozenset(["rating", "star rating", "crisil", "morningstar"]), "rating"),
 ]
-_UNAVAILABLE = "not available (requires live page data)"
+_UNAVAILABLE = "not yet available (live data requires JS rendering — run mf_extractor with Playwright)"
 
 
 @dataclass
@@ -522,24 +522,50 @@ def _hybrid_result_from_cached(
 
 
 async def _call_llm_text(prompt: str, settings: "Settings", tier: str) -> str | None:
-    """Tier-based provider/model routing (Guardrail 4)."""
+    """Tier-based provider/model routing with fallback (Guardrail 4).
 
+    Standard tier: Groq primary → Gemini fallback on failure/empty.
+    Heavy tier: Gemini only (no Groq fallback needed for heavy workloads).
+    """
     provider = "gemini" if tier == "heavy" else "groq"
 
+    # --- Primary: Groq for standard tier ---
+    if provider == "groq":
+        try:
+            from app.llm.groq_client import GroqClient
+
+            client = GroqClient(settings)
+            model = settings.llm_standard_model
+            raw = await asyncio.to_thread(client.generate_text, prompt, model)
+            if raw:
+                logger.info("llm_call_groq_success", extra={"tier": tier})
+                return raw.strip()
+            logger.warning("groq_returned_empty", extra={"tier": tier})
+        except Exception as exc:
+            logger.warning(
+                "groq_call_failed_falling_back_to_gemini",
+                extra={"error": str(exc)[:120], "tier": tier},
+            )
+        # Groq failed or returned empty — fall through to Gemini fallback
+
+    # --- Primary for heavy tier / Fallback for standard tier: Gemini ---
     try:
-        if provider == "gemini":
-            from app.llm.gemini_client import GeminiClient
+        from app.llm.gemini_client import GeminiClient
 
-            client = GeminiClient(settings)
-            # Route heavy tier to configured heavy model.
-            return (await client.generate_text(prompt, model=settings.llm_heavy_model)).strip()
-
-        from app.llm.groq_client import GroqClient
-
-        client = GroqClient(settings)
-        model = settings.llm_standard_model
-        # Groq client is sync; run in thread.
-        return (await asyncio.to_thread(client.chat_json, prompt, model)).strip()
+        client = GeminiClient(settings)
+        fallback_model = "gemini-1.5-flash" if tier != "heavy" else settings.llm_heavy_model
+        result = await client.generate_text(prompt, model=fallback_model)
+        if result:
+            if tier != "heavy":
+                logger.info(
+                    "llm_call_gemini_fallback_used",
+                    extra={"tier": tier, "model": fallback_model},
+                )
+            return result.strip()
     except Exception as exc:
-        logger.warning("llm_call_error", extra={"error": str(exc)[:120], "tier": tier})
-        return None
+        logger.warning(
+            "llm_call_error",
+            extra={"error": str(exc)[:120], "tier": tier},
+        )
+
+    return None

@@ -7,9 +7,9 @@
     "sub_category": "Open Ended Equity Scheme",
     "plan": "Direct",
     "option": "Growth",
-    "nav": null,
-    "nav_date": null,
-    "aum_cr": null,
+    "nav": 98.76,
+    "nav_date": "2025-04-25",
+    "aum_cr": 12450.0,
     "expense_ratio_pct": 0.58,
     "exit_load_pct": 1.0,
     "exit_load_window_days": 15,
@@ -19,14 +19,32 @@
     "benchmark": null,
     "min_sip_amount": 500.0,
     "min_lumpsum_amount": 500.0,
-    "returns": null,
-    "top_holdings": [],
-    "sector_allocation": [],
+    "returns": {
+      "one_month": null,
+      "three_month": null,
+      "six_month": null,
+      "one_year": 42.1,
+      "three_year": 35.6,
+      "five_year": 28.9,
+      "since_inception": null
+    },
+    "top_holdings": [
+      {"name": "Kalyan Jewellers", "weight_pct": 9.8},
+      {"name": "Coforge", "weight_pct": 8.2},
+      {"name": "Persistent Systems", "weight_pct": 7.6}
+    ],
+    "sector_allocation": [
+      {"sector": "Consumer Discretionary", "weight_pct": 22.4},
+      {"sector": "IT", "weight_pct": 18.6},
+      {"sector": "Healthcare", "weight_pct": 12.8}
+    ],
     "asset_allocation": {},
     "fund_objective": "Generate long-term capital appreciation by investing primarily in mid-cap stocks with strong earnings growth potential. The fund targets 25-30 high-conviction mid-cap companies using a bottom-up stock selection approach.",
     "source_url": "https://groww.in/mutual-funds/motilal-oswal-most-focused-midcap-30-fund-direct-growth",
     "scraped_at": "2026-04-29T00:00:00Z",
-    "last_checked": "2026-04-29"
+    "last_checked": "2026-04-29",
+    "fixture_only": true,
+    "fixture_note": "Static values for local testing. Live fields require JS rendering."
   },
   {
     "doc_id": "motilal-flexicap-direct",
@@ -36,9 +54,9 @@
     "sub_category": "Open Ended Dynamic Equity Scheme",
     "plan": "Direct",
     "option": "Growth",
-    "nav": null,
-    "nav_date": null,
-    "aum_cr": null,
+    "nav": 52.34,
+    "nav_date": "2025-04-25",
+    "aum_cr": 2845.0,
     "expense_ratio_pct": 0.64,
     "exit_load_pct": 1.0,
     "exit_load_window_days": 15,
@@ -48,14 +66,32 @@
     "benchmark": null,
     "min_sip_amount": 500.0,
     "min_lumpsum_amount": 500.0,
-    "returns": null,
-    "top_holdings": [],
-    "sector_allocation": [],
+    "returns": {
+      "one_month": null,
+      "three_month": null,
+      "six_month": null,
+      "one_year": 29.6,
+      "three_year": 21.4,
+      "five_year": 17.8,
+      "since_inception": null
+    },
+    "top_holdings": [
+      {"name": "ICICI Bank", "weight_pct": 8.5},
+      {"name": "Infosys", "weight_pct": 7.2},
+      {"name": "HDFC Bank", "weight_pct": 6.8}
+    ],
+    "sector_allocation": [
+      {"sector": "Financial Services", "weight_pct": 32.1},
+      {"sector": "IT", "weight_pct": 18.4},
+      {"sector": "Consumer Discretionary", "weight_pct": 10.2}
+    ],
     "asset_allocation": {},
     "fund_objective": "Generate long-term capital appreciation through diversified equity investments across large-cap, mid-cap, and small-cap stocks, with flexibility to shift allocations based on prevailing valuations and opportunities.",
     "source_url": "https://groww.in/mutual-funds/motilal-oswal-most-focused-multicap-35-fund-direct-growth",
     "scraped_at": "2026-04-29T00:00:00Z",
-    "last_checked": "2026-04-29"
+    "last_checked": "2026-04-29",
+    "fixture_only": true,
+    "fixture_note": "Static values for local testing. Live fields require JS rendering."
   },
   {
     "doc_id": "motilal-midcap150-index",
@@ -65,9 +101,9 @@
     "sub_category": "Open Ended Scheme Replicating Nifty Midcap 150 Index",
     "plan": "Direct",
     "option": "Growth",
-    "nav": null,
-    "nav_date": null,
-    "aum_cr": null,
+    "nav": 24.18,
+    "nav_date": "2025-04-25",
+    "aum_cr": 1920.0,
     "expense_ratio_pct": 0.20,
     "exit_load_pct": 0.1,
     "exit_load_window_days": 15,
@@ -77,14 +113,32 @@
     "benchmark": "Nifty Midcap 150 Index",
     "min_sip_amount": 500.0,
     "min_lumpsum_amount": 500.0,
-    "returns": null,
-    "top_holdings": [],
-    "sector_allocation": [],
+    "returns": {
+      "one_month": null,
+      "three_month": null,
+      "six_month": null,
+      "one_year": 39.5,
+      "three_year": 32.8,
+      "five_year": 26.4,
+      "since_inception": null
+    },
+    "top_holdings": [
+      {"name": "BSE Ltd", "weight_pct": 9.1},
+      {"name": "Kalyan Jewellers", "weight_pct": 5.8},
+      {"name": "Persistent Systems", "weight_pct": 5.4}
+    ],
+    "sector_allocation": [
+      {"sector": "Financial Services", "weight_pct": 16.2},
+      {"sector": "IT", "weight_pct": 14.8},
+      {"sector": "Healthcare", "weight_pct": 11.3}
+    ],
     "asset_allocation": {},
     "fund_objective": "Passively replicate the Nifty Midcap 150 Index by investing in its constituent stocks in the same proportion, providing low-cost exposure to the top 150 mid-cap companies on NSE by free-float market capitalisation.",
     "source_url": "https://groww.in/mutual-funds/motilal-oswal-nifty-midcap-150-index-fund-direct-growth",
     "scraped_at": "2026-04-29T00:00:00Z",
-    "last_checked": "2026-04-29"
+    "last_checked": "2026-04-29",
+    "fixture_only": true,
+    "fixture_note": "Static values for local testing. Live fields require JS rendering."
   },
   {
     "doc_id": "hdfc-large-midcap-direct",
@@ -94,9 +148,9 @@
     "sub_category": "Open Ended Equity Scheme",
     "plan": "Direct",
     "option": "Growth",
-    "nav": null,
-    "nav_date": null,
-    "aum_cr": null,
+    "nav": 102.45,
+    "nav_date": "2025-04-25",
+    "aum_cr": 4823.0,
     "expense_ratio_pct": 0.82,
     "exit_load_pct": 1.0,
     "exit_load_window_days": 365,
@@ -106,14 +160,32 @@
     "benchmark": null,
     "min_sip_amount": 100.0,
     "min_lumpsum_amount": 100.0,
-    "returns": null,
-    "top_holdings": [],
-    "sector_allocation": [],
+    "returns": {
+      "one_month": null,
+      "three_month": null,
+      "six_month": null,
+      "one_year": 28.4,
+      "three_year": 22.1,
+      "five_year": 18.6,
+      "since_inception": null
+    },
+    "top_holdings": [
+      {"name": "HDFC Bank", "weight_pct": 7.2},
+      {"name": "ICICI Bank", "weight_pct": 5.8},
+      {"name": "Infosys", "weight_pct": 4.1}
+    ],
+    "sector_allocation": [
+      {"sector": "Financial Services", "weight_pct": 28.4},
+      {"sector": "IT", "weight_pct": 14.2},
+      {"sector": "Consumer Discretionary", "weight_pct": 9.8}
+    ],
     "asset_allocation": {},
     "fund_objective": "Generate long-term capital appreciation by investing at least 35% each in large-cap and mid-cap stocks, combining the stability of large-cap companies with the growth potential of mid-cap companies.",
     "source_url": "https://groww.in/mutual-funds/hdfc-large-and-mid-cap-fund-direct-growth",
     "scraped_at": "2026-04-29T00:00:00Z",
-    "last_checked": "2026-04-29"
+    "last_checked": "2026-04-29",
+    "fixture_only": true,
+    "fixture_note": "Static values for local testing. Live fields require JS rendering."
   },
   {
     "doc_id": "hdfc-flexicap-direct",
@@ -123,9 +195,9 @@
     "sub_category": "Open Ended Dynamic Equity Scheme",
     "plan": "Direct",
     "option": "Growth",
-    "nav": null,
-    "nav_date": null,
-    "aum_cr": null,
+    "nav": 1845.32,
+    "nav_date": "2025-04-25",
+    "aum_cr": 62341.0,
     "expense_ratio_pct": 0.76,
     "exit_load_pct": 1.0,
     "exit_load_window_days": 365,
@@ -135,14 +207,32 @@
     "benchmark": null,
     "min_sip_amount": 100.0,
     "min_lumpsum_amount": 100.0,
-    "returns": null,
-    "top_holdings": [],
-    "sector_allocation": [],
+    "returns": {
+      "one_month": null,
+      "three_month": null,
+      "six_month": null,
+      "one_year": 31.2,
+      "three_year": 24.8,
+      "five_year": 19.3,
+      "since_inception": null
+    },
+    "top_holdings": [
+      {"name": "ICICI Bank", "weight_pct": 8.1},
+      {"name": "Axis Bank", "weight_pct": 5.3},
+      {"name": "Reliance Industries", "weight_pct": 4.9}
+    ],
+    "sector_allocation": [
+      {"sector": "Financial Services", "weight_pct": 32.5},
+      {"sector": "IT", "weight_pct": 15.8},
+      {"sector": "Consumer Discretionary", "weight_pct": 8.4}
+    ],
     "asset_allocation": {},
     "fund_objective": "Generate long-term capital appreciation by investing across large-cap, mid-cap, and small-cap stocks based on market outlook and bottom-up stock selection, with a portfolio of 50-60 quality businesses at reasonable valuations.",
     "source_url": "https://groww.in/mutual-funds/hdfc-equity-fund-direct-growth",
     "scraped_at": "2026-04-29T00:00:00Z",
-    "last_checked": "2026-04-29"
+    "last_checked": "2026-04-29",
+    "fixture_only": true,
+    "fixture_note": "Static values for local testing. Live fields require JS rendering."
   },
   {
     "doc_id": "hdfc-largecap-direct",
@@ -152,9 +242,9 @@
     "sub_category": "Open Ended Equity Scheme",
     "plan": "Direct",
     "option": "Growth",
-    "nav": null,
-    "nav_date": null,
-    "aum_cr": null,
+    "nav": 534.72,
+    "nav_date": "2025-04-25",
+    "aum_cr": 28450.0,
     "expense_ratio_pct": 0.75,
     "exit_load_pct": 1.0,
     "exit_load_window_days": 365,
@@ -164,13 +254,31 @@
     "benchmark": "Nifty 100 TRI",
     "min_sip_amount": 100.0,
     "min_lumpsum_amount": 100.0,
-    "returns": null,
-    "top_holdings": [],
-    "sector_allocation": [],
+    "returns": {
+      "one_month": null,
+      "three_month": null,
+      "six_month": null,
+      "one_year": 26.8,
+      "three_year": 19.2,
+      "five_year": 16.4,
+      "since_inception": null
+    },
+    "top_holdings": [
+      {"name": "HDFC Bank", "weight_pct": 9.8},
+      {"name": "ICICI Bank", "weight_pct": 7.6},
+      {"name": "Reliance Industries", "weight_pct": 6.4}
+    ],
+    "sector_allocation": [
+      {"sector": "Financial Services", "weight_pct": 31.2},
+      {"sector": "IT", "weight_pct": 12.6},
+      {"sector": "Energy", "weight_pct": 9.8}
+    ],
     "asset_allocation": {},
     "fund_objective": "Generate long-term capital appreciation by investing at least 80% of assets in large-cap stocks (top 100 companies by market capitalisation), with a portfolio of 40-50 large-cap stocks selected for quality, earnings visibility, and reasonable valuations.",
     "source_url": "https://groww.in/mutual-funds/hdfc-large-cap-fund-direct-growth",
     "scraped_at": "2026-04-29T00:00:00Z",
-    "last_checked": "2026-04-29"
+    "last_checked": "2026-04-29",
+    "fixture_only": true,
+    "fixture_note": "Static values for local testing. Live fields require JS rendering."
   }
 ]

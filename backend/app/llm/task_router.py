@@ -8,20 +8,27 @@ customer_router_service can route correctly:
                         (checked first, before fee/mf/hybrid)
 - mf_query            → RAG retrieval on mutual fund pages
 - fee_query           → RAG retrieval on expense ratio / exit load content
-- hybrid_query        → Both MF + fee content needed in one response (P4.4)
+- hybrid_query        → metric keyword AND explanatory/comparative intent together
 - booking_intent      → Hand off to booking response (Phase 5+ wiring)
 - out_of_scope        → Safe educational fallback
 - disallowed          → Refuse early (Rules R13)
 
 Classification is keyword-first (fast, deterministic) to keep latency low (Rules L7).
+
+hybrid_query fires ONLY when both a metric keyword (a) AND an explanatory or
+comparative intent keyword (b) are present.  Queries with a fund name but no
+metric keyword route to mf_query (standard/Groq) so Gemini quota is not wasted.
 """
 
 from __future__ import annotations
 
+import logging
 import re
+from typing import Literal
 
 from app.schemas.rag import IntentLabel
-from typing import Literal
+
+logger = logging.getLogger(__name__)
 
 # ---- keyword sets ----
 
@@ -89,6 +96,32 @@ _MF_KEYWORDS = frozenset(
     ]
 )
 
+# Explanatory / comparative intent keywords: hybrid_query requires at least one
+# of these alongside a metric keyword.  General "tell me about X fund" queries
+# must NOT match here so they fall through to mf_query (standard/Groq).
+_HYBRID_EXPLANATORY_KEYWORDS = frozenset(
+    [
+        "explain",
+        "compare",
+        "comparison",
+        "why",
+        "difference",
+        "better",
+        "better than",
+        "should i",
+        "tell me more",
+        "understand",
+        "how does",
+        "how do",
+        "what makes",
+        "vs",
+        "versus",
+        "pros and cons",
+        "worth it",
+        "matters",
+    ]
+)
+
 # Direct metric keywords: specific data-point questions that should prefer
 # structured lookup over free-text RAG when a fund is also identifiable.
 _DIRECT_METRIC_KEYWORDS = frozenset(
@@ -122,11 +155,8 @@ _DIRECT_METRIC_KEYWORDS = frozenset(
 )
 
 
-def classify_intent(message: str) -> IntentLabel:
-    """Fast keyword-based intent classification.
-
-    Returns a stable IntentLabel string (Rules D3: centralized enum).
-    """
+def _classify_intent_inner(message: str) -> IntentLabel:
+    """Core keyword-based classification logic (no side effects)."""
     text = message.strip()
     lower = text.lower()
 
@@ -138,17 +168,22 @@ def classify_intent(message: str) -> IntentLabel:
     has_fee = any(kw in lower for kw in _FEE_KEYWORDS)
     has_mf = any(kw in lower for kw in _MF_KEYWORDS)
     has_direct_metric = any(kw in lower for kw in _DIRECT_METRIC_KEYWORDS)
+    has_explanatory = any(kw in lower for kw in _HYBRID_EXPLANATORY_KEYWORDS)
+    has_metric = has_direct_metric or has_fee
 
-    # direct_metric_query: specific metric + fund context present.
-    # Checked before fee/hybrid so "what is the expense ratio of HDFC Large Cap?"
-    # routes to structured lookup rather than generic fee RAG.
-    if has_direct_metric and has_mf and not has_booking:
+    # direct_metric_query: specific metric + fund context present, no explanatory intent.
+    # Pure metric lookups ("What is the NAV of HDFC Flexi Cap?") go here — zero LLM call.
+    # When explanatory intent is also present, fall through to hybrid_query instead.
+    if has_direct_metric and has_mf and not has_explanatory and not has_booking:
         return "direct_metric_query"
 
     if has_booking and not has_fee and not has_mf:
         return "booking_intent"
 
-    if has_mf and has_fee:
+    # hybrid_query: ONLY when a metric keyword AND explanatory/comparative intent
+    # are both present.  "Tell me about HDFC Flexi Cap Fund" must NOT match here
+    # (no metric keyword → has_metric=False → routes to mf_query via Groq instead).
+    if has_metric and has_explanatory:
         return "hybrid_query"
 
     if has_fee:
@@ -162,6 +197,24 @@ def classify_intent(message: str) -> IntentLabel:
         return "hybrid_query"
 
     return "out_of_scope"
+
+
+def classify_intent(message: str) -> IntentLabel:
+    """Fast keyword-based intent classification with audit logging.
+
+    Returns a stable IntentLabel string (Rules D3: centralized enum).
+    """
+    intent = _classify_intent_inner(message)
+    tier = assign_model_tier(intent)
+    logger.info(
+        "intent_classified",
+        extra={
+            "intent": intent,
+            "tier": tier,
+            "provider": "gemini" if tier == "heavy" else "groq",
+        },
+    )
+    return intent
 
 
 def assign_model_tier(intent: IntentLabel) -> Literal["light", "standard", "heavy"]:
