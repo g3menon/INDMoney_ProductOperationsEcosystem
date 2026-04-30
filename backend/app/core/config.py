@@ -114,6 +114,74 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("DEFAULT_TIMEZONE"),
     )
 
+    # ── Phase 7: Google OAuth app credentials ─────────────────────────────────
+    # All optional: missing values cause the relevant integration to skip
+    # gracefully with a warning log rather than crashing the approval flow.
+
+    google_project_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_PROJECT_ID"),
+    )
+    google_client_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_CLIENT_ID"),
+    )
+    google_client_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_CLIENT_SECRET"),
+    )
+    google_redirect_uri: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_REDIRECT_URI"),
+    )
+    google_oauth_scopes: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_OAUTH_SCOPES"),
+    )
+
+    # Phase 7: operational Google account identifiers
+    google_authorized_email: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_AUTHORIZED_EMAIL"),
+    )
+    gmail_sender_email: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GMAIL_SENDER_EMAIL"),
+    )
+    google_calendar_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_CALENDAR_ID"),
+    )
+    google_sheets_spreadsheet_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_SHEETS_SPREADSHEET_ID"),
+    )
+    google_sheets_worksheet_name: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_SHEETS_WORKSHEET_NAME"),
+    )
+
+    # Phase 7: token storage encryption key (Fernet, base64-encoded 32 bytes).
+    # Generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    token_encryption_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("TOKEN_ENCRYPTION_KEY"),
+    )
+
+    # Phase 7: scheduler webhook secret (SCHEDULER_SHARED_SECRET already in .env).
+    scheduler_shared_secret: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("SCHEDULER_SHARED_SECRET"),
+    )
+
+    # Phase 7: bootstrap refresh token (env-var fallback; Phase 8 replaces with DB row).
+    # Set this to a pre-authorized refresh token for local dev when the full
+    # OAuth login flow (Phase 8) has not yet been run.
+    google_oauth_refresh_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("GOOGLE_OAUTH_REFRESH_TOKEN"),
+    )
+
     @field_validator("frontend_base_url", "supabase_url", "api_base_url")
     @classmethod
     def strip_urls(cls, v: str) -> str:

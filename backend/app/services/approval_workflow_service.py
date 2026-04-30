@@ -31,6 +31,7 @@ from datetime import datetime, timezone
 
 from app.repositories.booking_repository import BookingRepository
 from app.schemas.booking import ALLOWED_TRANSITIONS, BookingDetail, BookingStatus
+from app.services.mcp_integrations import run_approval_integrations
 
 logger = logging.getLogger(__name__)
 
@@ -151,10 +152,11 @@ async def approve_booking(
         },
     )
 
-    # ── Phase 7 integration stubs ────────────────────────────────────────────
-    # TODO Phase 7: await mcp.send_booking_confirmation(booking=updated, actor=actor)
-    # TODO Phase 7: await mcp.create_calendar_hold(booking=updated, actor=actor)
-    # TODO Phase 7: await mcp.append_advisor_sheet_row(booking=updated)
+    # ── Phase 7 integrations ─────────────────────────────────────────────────
+    # Fire Gmail / Calendar / Sheets side effects.  Each integration is
+    # isolated: a failure in one does not prevent the others, and none of them
+    # roll back the approval state (Rules I5, W5, G7).
+    await run_approval_integrations(booking=updated, actor=actor)
     # ────────────────────────────────────────────────────────────────────────
 
     return updated, False
