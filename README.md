@@ -48,6 +48,8 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/dashboard/badges
 ```powershell
 cd ..\frontend
 npm install
+# Next.js reads env vars from files under `frontend/` (e.g. `frontend/.env.local`),
+# not the repo-root `.env`.
 $env:NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:8000"
 npm run dev
 ```
