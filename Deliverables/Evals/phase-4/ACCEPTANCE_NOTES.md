@@ -49,10 +49,10 @@ These should return a deterministic answer with a single citation card.
 | `What is the exit load for the Motilal index fund?` | Returns `0.1% within 15 days` |
 
 **Checklist:**
-- [ ] Answer is deterministic (same response on repeated calls, no LLM variance).
-- [ ] Citation card appears with correct `source_url`, `title`, `last_checked`.
-- [ ] Disclaimer present in every response.
-- [ ] No invented figures — fields not available say "not available (requires live page data)".
+- [x] Answer is deterministic (same response on repeated calls, no LLM variance).
+- [x] Citation card appears with correct `source_url`, `title`, `last_checked`.
+- [x] Disclaimer present in every response.
+- [x] No invented figures — fields not available say "not available (requires live page data)".
 
 ---
 
@@ -64,7 +64,7 @@ These should return a deterministic answer with a single citation card.
 | `What is the NAV?` | Returns clarifying question |
 
 **Checklist:**
-- [ ] Clarifying response, no citation, no invented fund name.
+- [x] Clarifying response, no citation, no invented fund name.
 
 ---
 
@@ -79,10 +79,10 @@ These should return an answer that leads with structured facts then uses RAG tex
 | `Tell me about HDFC Large and Mid Cap Fund including its fees` | Combines fund overview (category, risk, minimums) with fee details |
 
 **Checklist:**
-- [ ] Structured metrics appear accurately (not hallucinated).
-- [ ] RAG narrative supplements facts with explanation.
-- [ ] Citations include both the metrics source and any retrieved chunks.
-- [ ] Disclaimer present.
+- [x] Structured metrics appear accurately (not hallucinated).
+- [x] RAG narrative supplements facts with explanation.
+- [x] Citations include both the metrics source and any retrieved chunks.
+- [x] Disclaimer present.
 
 ---
 
@@ -95,9 +95,9 @@ These should return an answer that leads with structured facts then uses RAG tex
 | `Compare direct plan vs regular plan fees` | RAG answer from fee explainer document |
 
 **Checklist:**
-- [ ] Response grounded in corpus, not invented.
-- [ ] Citation cards present with `source_url`, `title`, `last_checked`.
-- [ ] Disclaimer present.
+- [x] Response grounded in corpus, not invented.
+- [x] Citation cards present with `source_url`, `title`, `last_checked`.
+- [x] Disclaimer present.
 
 ---
 
@@ -110,8 +110,8 @@ These should return an answer that leads with structured facts then uses RAG tex
 | `Predict whether Motilal Midcap will go up` | `disallowed` refusal |
 
 **Checklist:**
-- [ ] No fabricated answers.
-- [ ] No citation cards for refusals.
+- [x] No fabricated answers.
+- [x] No citation cards for refusals.
 
 ---
 
@@ -119,8 +119,8 @@ These should return an answer that leads with structured facts then uses RAG tex
 
 When fields are `None` (JS-rendered-only), the structured answer should say so explicitly.
 
-- [ ] `What is the NAV of HDFC Large Cap?` → "NAV: not available (requires live page data)" with source URL.
-- [ ] `What are the top holdings of Motilal Midcap?` → "Top Holdings: not available (requires live page data)".
+- [x] `What is the NAV of HDFC Large Cap?` → "NAV: not available (requires live page data)" with source URL.
+- [x] `What are the top holdings of Motilal Midcap?` → "Top Holdings: not available (requires live page data)".
 
 ---
 
@@ -133,10 +133,10 @@ python scripts/ingest_sources.py --mode mf_sources
 ```
 
 **Checklist:**
-- [ ] Each fund shows `FETCH`, `EXTR`, `OK` log lines.
-- [ ] `EXTR` shows fields extracted count and tiers used.
-- [ ] JS-only fields listed in `INFO` line (not scattered as individual warnings).
-- [ ] `mf_metrics.json` written to `backend/app/rag/index/`.
+- [x] Each fund shows `FETCH`, `EXTR`, `OK` log lines.
+- [x] `EXTR` shows fields extracted count and tiers used.
+- [x] JS-only fields listed in `INFO` line (not scattered as individual warnings).
+- [x] `mf_metrics.json` written to `backend/app/rag/index/`.
 
 ---
 
@@ -146,7 +146,7 @@ python scripts/ingest_sources.py --mode mf_sources
    ```json
    {
      "doc_id": "parag-parikh-flexicap-direct",
-     "url": "https://groww.in/mutual-funds/parag-parikh-long-term-equity-fund-direct-growth",
+     "url": "https://groww.in/mutual-funds/parag-parikh-long-term-value-fund-direct-growth",
      "title": "Parag Parikh Flexi Cap Fund Direct Growth",
      "doc_type": "mutual_fund_page"
    }
@@ -156,29 +156,31 @@ python scripts/ingest_sources.py --mode mf_sources
 4. Ask: "What is the expense ratio of Parag Parikh Flexi Cap?" → should route to `direct_metric_query`.
 
 **Checklist:**
-- [ ] No code changes required to add the fund.
-- [ ] New fund appears in mf_metrics.json after rebuild.
-- [ ] Direct metric questions about the new fund work after restart.
+- [x] No code changes required to add the fund.
+- [x] New fund appears in mf_metrics.json after rebuild.
+- [x] Direct metric questions about the new fund work after restart.
 
 ---
 
 ## Schema validation
 
-- [ ] `infra/supabase/phase4_schema.sql` includes `mf_fund_metrics` table.
-- [ ] `mf_fund_metrics` has FK to `source_documents(doc_id) ON DELETE CASCADE`.
-- [ ] `INGEST_SKIP_SUPABASE=1` prevents Supabase writes; local JSON still written.
+- [x] `infra/supabase/phase4_schema.sql` includes `mf_fund_metrics` table.
+- [x] `mf_fund_metrics` has FK to `source_documents(doc_id) ON DELETE CASCADE`.
+- [x] `INGEST_SKIP_SUPABASE=1` prevents Supabase writes; local JSON still written.
 
 ---
 
 ## Acceptance criteria (Phase 4 extended DoD)
 
-- [ ] Direct metric questions return deterministic structured answers for all 6 fixture funds.
-- [ ] Hybrid questions combine structured metrics + RAG narrative with Gemini.
-- [ ] Fund not matched → clarifying question (no invented fund data).
-- [ ] JS-only fields (`nav`, `aum_cr`, `returns`, `top_holdings`, `sector_allocation`) are None with inline note.
-- [ ] Source manifest drives both scripts; no hardcoded URLs in script logic.
-- [ ] `mf_metrics.json` written alongside `chunks.json` on every rebuild.
-- [ ] `mf_fund_metrics` Supabase table DDL present and additive.
-- [ ] `MFMetricsStore` loads at startup alongside `RAGIndex`; absent file degrades gracefully.
-- [ ] All existing Phase 4 automated eval checks still pass at ≥ 85%.
-- [ ] Disclaimer present in all structured, hybrid, and RAG answers.
+- [x] Direct metric questions return deterministic structured answers for all 6 fixture funds.
+- [x] Hybrid questions combine structured metrics + RAG narrative with Gemini.
+- [x] Fund not matched → clarifying question (no invented fund data).
+- [x] JS-only fields (`nav`, `aum_cr`, `returns`, `top_holdings`, `sector_allocation`) are None with inline note.
+- [x] Source manifest drives both scripts; no hardcoded URLs in script logic.
+- [x] `mf_metrics.json` written alongside `chunks.json` on every rebuild.
+- [x] `mf_fund_metrics` Supabase table DDL present and additive.
+- [x] `MFMetricsStore` loads at startup alongside `RAGIndex`; absent file degrades gracefully.
+- [x] All existing Phase 4 automated eval checks still pass at ≥ 85%.
+- [x] Disclaimer present in all structured, hybrid, and RAG answers.
+
+Phase 4 gate: PASS

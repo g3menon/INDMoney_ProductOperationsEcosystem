@@ -179,10 +179,12 @@ DISALLOWED_RESPONSES: dict[str, str] = {
     "disallowed": (
         "I'm not able to give personalised investment advice, predictions, or recommendations. "
         "I can explain mutual fund concepts and fees from Groww's product pages. "
-        "What would you like to understand about a specific fund or fee?"
+        "What would you like to understand about a specific fund or fee? "
+        "This is general information only, not personalised financial advice."
     ),
     "out_of_scope": (
         "I can help with mutual fund information and fee explanations from Groww's product pages. "
-        "Try asking about a specific fund's expense ratio, exit load, or how a particular fund category works."
+        "Try asking about a specific fund's expense ratio, exit load, or how a particular fund category works. "
+        "This is general information only, not personalised financial advice."
     ),
 }

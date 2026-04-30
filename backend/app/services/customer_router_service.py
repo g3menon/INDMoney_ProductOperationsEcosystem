@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DISCLAIMER = "General information only, not financial advice."
+_DISCLAIMER = "This is general information only, not personalised financial advice."
 
 _BOOKING_RESPONSE = (
     "To book an advisor appointment, please share: (1) your preferred date/time window, "
@@ -110,6 +110,7 @@ async def generate_customer_response(
     """Return (assistant_text, citations) for the given user message."""
     t0 = time.monotonic()
     intent = classify_intent(user_message)
+    lower = user_message.lower()
 
     logger.info(
         "customer_router_intent",
@@ -123,6 +124,13 @@ async def generate_customer_response(
     # ── 2. Booking intent ────────────────────────────────────────────────
     if intent == "booking_intent":
         return _BOOKING_RESPONSE, []
+
+    # ── 2.5 Clarify ambiguous metric questions (metric asked, fund missing) ──
+    # Example: "What is the expense ratio?" should ask WHICH fund; whereas
+    # "What is an expense ratio?" should explain the concept via RAG.
+    if intent in ("fee_query",) and any(k in lower for k in ("expense ratio", "exit load", "ter")):
+        if " an " not in lower and not any(f in lower for f in ("hdfc", "motilal", "midcap", "flexi", "index", "fund")):
+            return _CLARIFY_FUND, []
 
     # ── 3. direct_metric_query ───────────────────────────────────────────
     if intent == "direct_metric_query":

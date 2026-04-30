@@ -10,7 +10,7 @@ from fastapi import APIRouter
 
 from app.core.config import get_settings
 from app.repositories.chat_repository import get_chat_repository
-from app.schemas.chat import ChatMessage, ChatMessageRequest, ChatMessageResult, PromptChip
+from app.schemas.chat import ChatMessage, ChatMessageRequest, ChatMessageResult, CitationSource, PromptChip
 from app.schemas.common import APIEnvelope
 from app.services.customer_router_service import generate_customer_response
 from app.services.prompt_service import get_prompt_chips
@@ -33,13 +33,19 @@ async def post_message(body: ChatMessageRequest) -> APIEnvelope[ChatMessageResul
     )
     assistant_msg = await repo.add_message(session_id=session_id, role="assistant", content=assistant_text)
 
+    # `generate_customer_response` returns citations from the RAG layer's schema.
+    # Normalize into the Chat API schema type to satisfy response_model validation.
+    normalized_citations = [
+        CitationSource.model_validate(c.model_dump() if hasattr(c, "model_dump") else c) for c in (citations or [])
+    ]
+
     return APIEnvelope(
         success=True,
         message="chat_message",
         data=ChatMessageResult(
             session_id=session_id,
             assistant_message=assistant_text,
-            citations=citations,
+            citations=normalized_citations,
             created_at=assistant_msg.created_at,
         ),
     )
