@@ -1,0 +1,39 @@
+{
+  "version": "phase5-v1",
+  "total_weight": 100.0,
+  "earned_weight": 100.0,
+  "score": 100.0,
+  "checks": [
+    {
+      "id": "openapi_booking_paths",
+      "weight": 20.0,
+      "passed": true
+    },
+    {
+      "id": "create_booking_happy_path",
+      "weight": 30.0,
+      "passed": true
+    },
+    {
+      "id": "get_booking_by_id",
+      "weight": 20.0,
+      "passed": true
+    },
+    {
+      "id": "cancel_booking_happy_path",
+      "weight": 15.0,
+      "passed": true
+    },
+    {
+      "id": "duplicate_submit_idempotent",
+      "weight": 10.0,
+      "passed": true
+    },
+    {
+      "id": "invalid_cancel_errors_safe",
+      "weight": 5.0,
+      "passed": true
+    }
+  ],
+  "generated_at": "2026-04-30T09:10:41.802620+00:00"
+}
