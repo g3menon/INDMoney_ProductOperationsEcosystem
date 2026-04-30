@@ -169,6 +169,7 @@ async def create_booking(
     detail = BookingDetail(
         booking_id=booking_id,
         session_id=request.session_id,
+        idempotency_key=request.idempotency_key,
         customer_name=request.customer_name,
         customer_email=request.customer_email,
         issue_summary=request.issue_summary,
@@ -181,11 +182,8 @@ async def create_booking(
         cancellation_reason=None,
     )
 
+    # Both repo implementations handle idempotency key registration inside create().
     await repo.create(detail)
-
-    # Register idempotency key mapping in the in-memory repo.
-    if request.idempotency_key and hasattr(repo, "register_idempotency"):
-        await repo.register_idempotency(request.idempotency_key, booking_id)  # type: ignore[attr-defined]
 
     logger.info(
         "booking_created",

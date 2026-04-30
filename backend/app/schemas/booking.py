@@ -118,6 +118,9 @@ class BookingDetail(BaseModel):
 
     booking_id: str = Field(description="Collision-safe booking reference (BK-YYYYMMDD-XXXX)")
     session_id: str | None = None
+    # Stored alongside the booking so Supabase can enforce the unique constraint (G9, D6).
+    # Echoed in responses so the client can confirm which submission was deduplicated.
+    idempotency_key: str | None = None
     customer_name: str
     customer_email: str
     issue_summary: str
