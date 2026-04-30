@@ -35,7 +35,12 @@ class BookingRepository(Protocol):
         new_status: BookingStatus,
         updated_at: datetime,
         cancellation_reason: str | None = None,
+        actor: str = "system",
     ) -> BookingDetail: ...
+
+    async def list_by_status(self, status: BookingStatus) -> list[BookingDetail]: ...
+
+    async def list_by_statuses(self, statuses: list[BookingStatus]) -> list[BookingDetail]: ...
 
 
 @dataclass
@@ -72,6 +77,7 @@ class InMemoryBookingRepository:
         new_status: BookingStatus,
         updated_at: datetime,
         cancellation_reason: str | None = None,
+        actor: str = "system",
     ) -> BookingDetail:
         async with self._lock:
             existing = self._by_id.get(booking_id)
@@ -86,6 +92,15 @@ class InMemoryBookingRepository:
             )
             self._by_id[booking_id] = updated
             return updated
+
+    async def list_by_status(self, status: BookingStatus) -> list[BookingDetail]:
+        async with self._lock:
+            return [b for b in self._by_id.values() if b.status == status]
+
+    async def list_by_statuses(self, statuses: list[BookingStatus]) -> list[BookingDetail]:
+        status_set = set(statuses)
+        async with self._lock:
+            return [b for b in self._by_id.values() if b.status in status_set]
 
 
 class SupabaseBookingRepository:
@@ -134,7 +149,7 @@ class SupabaseBookingRepository:
         to_status: BookingStatus,
         reason: str | None = None,
         actor: str = "system",
-    ) -> None:
+    ) -> None:  # noqa: D401
         """Write a booking_events audit row for a state transition (Rules O2, W9).
 
         Failures are logged but do NOT propagate — audit is non-blocking.
@@ -215,9 +230,9 @@ class SupabaseBookingRepository:
         new_status: BookingStatus,
         updated_at: datetime,
         cancellation_reason: str | None = None,
+        actor: str = "system",
     ) -> BookingDetail:
         """Update booking status and write a booking_events audit entry."""
-        # Fetch current status for the audit event (from_status).
         current = await self.get_by_id(booking_id)
         from_status = current.status if current else None
 
@@ -227,18 +242,42 @@ class SupabaseBookingRepository:
 
         self._client.table("bookings").update(patch).eq("booking_id", booking_id).execute()
 
-        # Audit: record the state transition (Rules O2, W9).
+        # Audit: record the state transition with actor context (Rules O2, W9, P6.5).
         self._log_event(
             booking_id=booking_id,
             from_status=from_status,
             to_status=new_status,
             reason=cancellation_reason,
+            actor=actor,
         )
 
         updated = await self.get_by_id(booking_id)
         if updated is None:
             raise KeyError(f"booking {booking_id!r} not found after update")
         return updated
+
+    async def list_by_status(self, status: BookingStatus) -> list[BookingDetail]:
+        """Return all bookings in a given status, ordered by created_at desc."""
+        res = (
+            self._client.table("bookings")
+            .select("*")
+            .eq("status", status.value)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return [self._row_to_detail(r) for r in (res.data or [])]
+
+    async def list_by_statuses(self, statuses: list[BookingStatus]) -> list[BookingDetail]:
+        """Return all bookings whose status is in the given list, ordered by created_at desc."""
+        values = [s.value for s in statuses]
+        res = (
+            self._client.table("bookings")
+            .select("*")
+            .in_("status", values)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return [self._row_to_detail(r) for r in (res.data or [])]
 
 
 _MEM_BOOKING: InMemoryBookingRepository | None = None
