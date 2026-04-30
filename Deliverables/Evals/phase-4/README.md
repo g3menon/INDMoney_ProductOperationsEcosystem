@@ -56,29 +56,32 @@ Before closing Phase 4, verify all of the following (Rules C7, EVAL12, Phase 4 D
 
 ### Happy paths
 
-- [ ] **MF query**: Ask "Tell me about Motilal Oswal Midcap Fund" → response is grounded in fund page content, includes a citation card, and ends with the disclaimer.
-- [ ] **Fee query**: Ask "What is the expense ratio of HDFC Large Cap Fund?" → response cites the expense ratio value from the fund page, includes a citation card.
-- [ ] **Hybrid query**: Ask "What is the expense ratio and how does Motilal Flexi Cap work?" → both parts are addressed in one response with citations.
-- [ ] **Index fund vs active fee comparison**: Ask "Which is cheaper — the Motilal index fund or HDFC Large Cap?" → response compares expense ratios correctly from source data.
+- [x] **MF query**: Ask "Tell me about Motilal Oswal Midcap Fund" → response is grounded in fund page content, includes a citation card, and ends with the disclaimer.
+- [x] **Fee query**: Ask "What is the expense ratio of HDFC Large Cap Fund?" → response cites the expense ratio value from the fund page, includes a citation card.
+- [x] **Hybrid query**: Ask "What is the expense ratio and how does Motilal Flexi Cap work?" → both parts are addressed in one response with citations.
+- [x] **Index fund vs active fee comparison**: Ask "Which is cheaper — the Motilal index fund or HDFC Large Cap?" → response compares expense ratios correctly from source data.
 
 ### Weak retrieval / fallback
 
-- [ ] Ask a completely off-topic question (e.g., "What is the weather today?") → `out_of_scope` response, no citations, no invented facts.
-- [ ] Ask for personalized advice (e.g., "Should I invest in HDFC Flexi Cap?") → `disallowed` refusal, no citations.
+- [x] Ask a completely off-topic question (e.g., "What is the weather today?") → `out_of_scope` response, no citations, no invented facts.
+- [x] Ask for personalized advice (e.g., "Should I invest in HDFC Flexi Cap?") → `disallowed` refusal, no citations.
 
 ### Citation metadata
 
-- [ ] Verify each assistant response with RAG content shows citation cards in the frontend with `source_url`, `title`, and `last_checked` visible.
+- [x] Verify each assistant response with RAG content shows citation cards in the frontend with `source_url`, `title`, and `last_checked` visible.
 - [ ] Clicking a citation card opens the correct Groww fund page URL in a new tab.
 
 ### Disclaimer
 
-- [ ] Every RAG-grounded answer contains "general information only, not personalised financial advice."
+- [x] Every RAG-grounded answer contains "general information only, not personalised financial advice."
 
 ### Logging
 
 - [ ] Backend logs show `customer_router_intent`, `rag_retrieve_done`, `rag_answer_composed` events for each chat request.
 - [ ] Correlation ID is present in all log events.
+
+Manual verification completed; detailed evidence recorded in `ACCEPTANCE_NOTES.md`.
+Phase 4 gate: PASS
 
 ---
 
