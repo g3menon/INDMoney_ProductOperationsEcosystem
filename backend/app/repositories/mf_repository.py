@@ -157,9 +157,11 @@ class SupabaseMFRepository:
                 if metrics.min_lumpsum_amount is not None
                 else None
             ),
-            "returns": metrics.returns.model_dump() if metrics.returns else None,
-            "top_holdings": [h.model_dump() for h in metrics.top_holdings],
-            "sector_allocation": [s.model_dump() for s in metrics.sector_allocation],
+            # mode="json" guards against future schema additions (date/datetime/Decimal/UUID)
+            # that postgrest>=2.x can't auto-serialize via raw json.dumps.
+            "returns": metrics.returns.model_dump(mode="json") if metrics.returns else None,
+            "top_holdings": [h.model_dump(mode="json") for h in metrics.top_holdings],
+            "sector_allocation": [s.model_dump(mode="json") for s in metrics.sector_allocation],
             "asset_allocation": metrics.asset_allocation,
             "fund_objective": metrics.fund_objective,
             "scraped_at": metrics.scraped_at,

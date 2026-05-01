@@ -73,21 +73,23 @@ class SupabasePulseRepository:
     async def persist_raw_reviews(self, rows: list[RawReview]) -> int:
         if not rows:
             return 0
-        payload = [r.model_dump() for r in rows]
+        # mode="json" serializes date/datetime to ISO strings — required since
+        # postgrest>=2.x stopped auto-encoding datetime via Pydantic.
+        payload = [r.model_dump(mode="json") for r in rows]
         res = await asyncio.to_thread(lambda: self._client.table("reviews_raw").insert(payload).execute())
         return len(res.data or payload)
 
     async def persist_normalized_reviews(self, rows: list[NormalizedReview]) -> int:
         if not rows:
             return 0
-        payload = [r.model_dump() for r in rows]
+        payload = [r.model_dump(mode="json") for r in rows]
         res = await asyncio.to_thread(
             lambda: self._client.table("reviews_normalized").upsert(payload, on_conflict="review_id").execute()
         )
         return len(res.data or payload)
 
     async def create_weekly_pulse(self, pulse: WeeklyPulse) -> WeeklyPulse:
-        payload = pulse.model_dump()
+        payload = pulse.model_dump(mode="json")
         await asyncio.to_thread(lambda: self._client.table("weekly_pulses").insert(payload).execute())
         return pulse
 

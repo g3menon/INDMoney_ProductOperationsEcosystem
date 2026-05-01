@@ -30,7 +30,7 @@ The system combines:
 | G8 | **Structured logging is mandatory.** Logs must include correlation IDs, layer context, durations, and normalized error categories. | Enables debugging across multi-step workflows. |
 | G9 | **Idempotency is required for side effects.** Retries must not create duplicate emails, calendar events, sheet writes, approval actions, or bookings. | Prevents duplicate real-world actions. |
 | G10 | **Documentation must match implementation.** `README.md`, architecture docs, `Docs/Rules.md`, `Docs/UserFlow.md`, `Docs/UI.md`, `Deliverables/Resources.md`, and `.env.example` must stay aligned with the actual code. | Prevents documentation drift. |
-| G11 | **Pin dependencies where practical.** Use deterministic versions for backend and frontend packages. | Improves reproducibility and debugging. |
+| G11 | **Pin dependencies where practical.** Use deterministic versions for backend and frontend packages. When pinning the Supabase Python client (`supabase` in `backend/requirements.txt`), verify compatibility with your **Supabase project's API key format** (JWT-shaped legacy keys vs. newer `sb_publishable_*` / `sb_secret_*` keys)—older client versions may reject non-JWT keys at `create_client` time even when `httpx`-based health checks succeed. | Improves reproducibility, debugging, and avoids silent breakage when keys or SDKs drift. |
 | G12 | **Every phase must be manually testable.** A phase is not complete unless its core happy path can be exercised manually. | Ensures visible, working progress. |
 | G13 | **Prefer one source of truth.** Shared states, constants, schemas, and workflow enums must live in central modules rather than repeated ad hoc. | Prevents inconsistency across layers. |
 | G14 | **Only approved, cleaned context reaches LLMs.** Retrieval inputs, review data, booking context, and operational context must be bounded, relevant, and sanitized first. | Controls cost, safety, and hallucination risk. |
@@ -94,6 +94,7 @@ The system combines:
 | D7 | **Never persist raw secrets or OAuth tokens in plaintext.** If token persistence is required, it must be encrypted or stored using the approved secure mechanism. | Security requirement. |
 | D8 | **Artifacts must be traceable.** Pulse IDs, booking IDs, session IDs, and approval records must be linkable across the workflow. | Enables auditability and debugging. |
 | D9 | **Preserve lineage for ingested data.** Store or archive raw collection output where practical, then persist normalized rows with `source`, `source_id`, `ingested_at`, and `content_hash` (or equivalent) so replays and dedupe are possible. | Supports debugging Play Store DOM changes and scraper drift. |
+| D10 | **Supabase writes via `supabase-py` must be JSON-safe end-to-end.** The client sends bodies through HTTP JSON encoding (standard `json.dumps`). Do not pass Pydantic `model_dump()` output directly to `.insert()` / `.upsert()` if it contains non-JSON-native types (`datetime`, `date`, `Decimal`, `UUID`, enums, nested models with those types). Use **`model_dump(mode="json")`** for rows that mirror a schema, **or** build dicts explicitly and call **`.isoformat()`** on every timestamp/date field—same expectation for nested dicts/lists sent as JSON columns. Repositories must not rely on historical “Pydantic auto-encoding” behaviour from older `postgrest` stack versions. | Prevents ingest/pulse/booking/token writes failing at runtime with `TypeError` or opaque 500s after dependency upgrades. |
 
 ## LLM and retrieval rules
 
@@ -142,6 +143,7 @@ The system combines:
 | I8 | **Provider rate limits and quotas must be respected.** | Important for Google APIs and LLM providers. |
 | I9 | **MCP is a thin governed action layer, not a default runtime path.** Keep latency-sensitive live chat/voice operations on direct service integrations; use MCP for explicit governed external actions (for example, scheduler- or approval-triggered side effects). | Preserves responsiveness while retaining controlled actions where they matter. |
 | I10 | **Playwright dependencies are explicit.** Declare `playwright` and browser install steps in backend or scripts `requirements`/CI; document headless flags and timeouts; fail jobs with actionable errors when selectors break. | Play Store UI changes are frequent; ops must detect breakage quickly. |
+| I11 | **Supabase REST access must align with documented client + key pairing.** Prefer the **official `supabase-py` version pinned in `backend/requirements.txt`**. Confirm at setup time that **`create_client(supabase_url, service_role_key)`** succeeds with your project's keys; do not infer DB health solely from separate `httpx` calls that bypass the client's key validation path. Prefer **JWT-shaped** anon/service-role keys unless the pinned client explicitly supports newer **publishable / secret** key prefixes (see `.env.example` and Supabase docs for your project). | Avoids misleading “healthy” startups while every repository-backed route fails (`Invalid API key` or unreachable writes). |
 
 ## Observability and debugging rules
 
@@ -155,6 +157,7 @@ The system combines:
 | O6 | **Retry attempts must be logged distinctly from first attempts.** | Needed for diagnosing duplication and tail latency. |
 | O7 | **Avoid noisy logs.** Log milestones, decisions, errors, and metrics; do not dump entire payloads unnecessarily. | Keeps signal-to-noise high. |
 | O8 | **All critical jobs must emit start, success, and failure events.** | Important for scheduler, pulse generation, and outbound communication jobs. |
+| O9 | **Unhandled server errors vs. browser telemetry.** Bare **500** responses from FastAPI/starlette defaults are often **`text/plain`** and may omit **CORS** headers depending on middleware order—browsers then report **`Failed to fetch` / TypeError**, hiding the real status and body from frontend `fetch`. Prefer **JSON error envelopes** (or exception handlers) that run within the normal response path so **CORS middleware** still applies, and log stack traces server-side with **correlation IDs** (O1). | Speeds diagnosis when the UI shows only a network error but the server actually threw. |
 
 ## Evals and quality rules
 
@@ -198,6 +201,7 @@ The system combines:
 | C6 | **Require instrumentation on new critical paths.** New workflow code must include logs, timing, and clear error handling from the start. | Avoids invisible failures. |
 | C7 | **Require manual test instructions for each completed phase.** Cursor should leave behind a verifiable path, not just code. | Makes progress testable. |
 | C8 | **Do not accept architecture-breaking convenience shortcuts.** If a shortcut moves domain logic into UI or provider logic into domain services, reject it. | Preserves long-term maintainability. |
+| C9 | **After upgrading `supabase` / `postgrest`, re-audit repository writes.** Grep for **`.insert(` / `.upsert(` / `.update(`** plus **`model_dump(`** touching Supabase payloads; enforce **D10** (`mode="json"` or explicit primitives). Treat **O9** as a symptom-check: if UI shows **Failed to fetch** on PATCH/POST/GET simultaneously, inspect server logs and HTTP status—not only CORS origins. | Prevents regressions that look like “frontend unreachable.” |
 
 ## Phase-specific rules
 
@@ -235,6 +239,7 @@ The system combines:
 | P2.6 | **Groww Play Store reviews are ingested via Playwright as a documented job.** | Collect reviews up to **8 weeks** lookback only; job writes **raw** records first; failures are logged with correlation IDs. |
 | P2.7 | **Mandatory pulse pipeline after raw collection.** | Do not call theme or pulse LLMs on raw Playwright payloads. Apply **cleaning** then **normalization** (dedupe, spam/low-signal filtering, PII minimization, policy filters per product spec—e.g. English-only, min length, helpfulness weighting, rating balance including **4:1** issues/improvements vs positive sentiment targets where configured) before **theme generation (Groq)** and **pulse generation (Gemini 2.5 Flash)**, following the canonical order in `Deliverables/Resources.md` (**Weekly Pulse from Play Store (order)**). Groq/Gemini must only see bounded, cleaned text. |
 | P2.8 | **No PII in collected reviews.** | Do not store reviewer names, phone numbers, Aadhaar, or other PII; store **review_id** (and allowed fields such as device type) for database reference only. |
+| P2.9 | **Product Pulse UI is truthful about “no data” vs “fetch failed”.** Empty **current pulse** and **history** are expected until **reviews are ingested** into Supabase (e.g. `scripts/ingest_sources.py`) and **`POST /api/v1/pulse/generate`** has been run (`use_fixture: false` for real data). The CSV/JSON on disk does not populate the tab by itself—the pipeline must persist then generate. Messaging should distinguish **empty legitimate state** (**UI2**) from **connectivity or opaque server failures** (**O9**, **UI4**—including cases where the browser shows **`Failed to fetch`** while the backend actually returned an unhandled **500**). | Operators are not confused when the dashboard is reachable but Phase 2 data has not been loaded. |
 
 **Definition of Done**
 - Pulse generation API works.
