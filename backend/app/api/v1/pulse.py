@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+import secrets
+
+from fastapi import APIRouter, Header, HTTPException
 
 from app.core.config import get_settings
 from app.repositories.subscription_repository import get_subscription_repository
@@ -42,13 +44,21 @@ async def history(limit: int = 20) -> APIEnvelope[list[WeeklyPulse]]:
     return APIEnvelope(success=True, message="pulse_history", data=rows)
 
 
-@router.post("/send-now", response_model=APIEnvelope[SendNowResult])
-async def send_now() -> APIEnvelope[SendNowResult]:
+@router.post("/trigger", response_model=APIEnvelope[SendNowResult])
+async def send_now(
+    authorization: str | None = Header(default=None),
+) -> APIEnvelope[SendNowResult]:
     """Trigger an immediate pulse send to all active subscribers.
 
     Phase 7: uses the same sending path as the scheduler webhook.
     """
     settings = get_settings()
+    secret = settings.scheduler_shared_secret
+    token = authorization.split(" ", 1)[1].strip() if authorization and authorization.lower().startswith("bearer ") else None
+    if not secret:
+        raise HTTPException(status_code=501, detail="pulse_trigger_not_configured")
+    if not token or not secrets.compare_digest(token, secret):
+        raise HTTPException(status_code=401, detail="unauthorized")
     result = await send_latest_pulse_to_subscribers(settings=settings, correlation_id=None)
     return APIEnvelope(success=True, message="pulse_send_triggered", data=result)
 

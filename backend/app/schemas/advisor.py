@@ -18,6 +18,7 @@ from app.schemas.booking import BookingDetail
 class ApproveRequest(BaseModel):
     """Body for POST /advisor/approve/{booking_id}."""
 
+    actor: str = "advisor"
     reason: str | None = Field(
         default=None,
         max_length=1000,
@@ -31,6 +32,7 @@ class RejectRequest(BaseModel):
     Reason is required for rejection to ensure the audit trail is actionable (P6.5).
     """
 
+    actor: str = "advisor"
     reason: str = Field(
         min_length=1,
         max_length=1000,

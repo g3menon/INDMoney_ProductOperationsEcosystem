@@ -129,7 +129,7 @@ async def approve_booking_route(
     repo = get_booking_repository(settings)
 
     # Actor defaults to "advisor" for Phase 6; Phase 7 can pass the authenticated user.
-    actor = "advisor"
+    actor = body.actor
 
     try:
         updated, idempotent = await approve_booking(
@@ -214,7 +214,7 @@ async def reject_booking_route(
     settings = get_settings()
     repo = get_booking_repository(settings)
 
-    actor = "advisor"
+    actor = body.actor
 
     try:
         updated, idempotent = await reject_booking(

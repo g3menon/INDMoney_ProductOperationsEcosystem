@@ -15,8 +15,9 @@ See backend/app/api/v1/advisor.py for the primary advisor-facing surface.
 from __future__ import annotations
 
 import logging
+import secrets
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Header, status
 
 from app.core.config import get_settings
 from app.repositories.booking_repository import get_booking_repository
@@ -37,6 +38,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/approval")
 
 
+def _verify_advisor_token(authorization: str | None, settings) -> None:
+    expected = settings.scheduler_shared_secret
+    if not expected:
+        raise HTTPException(status_code=501, detail="advisor_auth_not_configured")
+    token = (
+        authorization.split(" ", 1)[1].strip()
+        if authorization and authorization.lower().startswith("bearer ")
+        else None
+    )
+    if not token or not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
 # ────────────────────────────────────────────────────────────────────
 # POST /approval/{approval_id}/approve
 # ────────────────────────────────────────────────────────────────────
@@ -46,6 +60,7 @@ router = APIRouter(prefix="/approval")
 async def approve_via_approval_route(
     approval_id: str,
     body: ApproveRequest,
+    authorization: str | None = Header(default=None),
 ) -> APIEnvelope[ApprovalResult]:
     """Approve a booking via the /approval/{approval_id}/approve path.
 
@@ -55,8 +70,9 @@ async def approve_via_approval_route(
     Idempotent: already-approved booking returns 200, idempotent=True (P6.3, G9).
     """
     settings = get_settings()
+    _verify_advisor_token(authorization, settings)
     repo = get_booking_repository(settings)
-    actor = "advisor"
+    actor = body.actor
 
     try:
         updated, idempotent = await approve_booking(
@@ -121,14 +137,16 @@ async def approve_via_approval_route(
 async def reject_via_approval_route(
     approval_id: str,
     body: RejectRequest,
+    authorization: str | None = Header(default=None),
 ) -> APIEnvelope[ApprovalResult]:
     """Reject a booking via the /approval/{approval_id}/reject path.
 
     Idempotent: already-rejected booking returns 200, idempotent=True (P6.3, G9).
     """
     settings = get_settings()
+    _verify_advisor_token(authorization, settings)
     repo = get_booking_repository(settings)
-    actor = "advisor"
+    actor = body.actor
 
     try:
         updated, idempotent = await reject_booking(
