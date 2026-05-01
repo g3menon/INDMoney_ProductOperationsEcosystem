@@ -26,6 +26,7 @@ Rules satisfied:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -58,12 +59,17 @@ async def run_approval_integrations(
     # ── 1. Obtain a live OAuth access token (shared across all three calls) ──
     access_token: str | None = await get_google_oauth_token()
 
+    if access_token is None:
+        logger.warning(
+            "approval_integrations_no_oauth_token",
+            extra={"booking_id": booking_id, "actor": actor},
+        )
+
     # ── 2. Gmail — send booking confirmation email ────────────────────────────
     gmail_result: dict[str, Any] = {"status": "not_attempted"}
     try:
-        gmail_result = send_booking_confirmation(
-            booking=booking,
-            access_token=access_token,
+        gmail_result = await asyncio.to_thread(
+            send_booking_confirmation, booking=booking, access_token=access_token
         )
     except Exception as exc:
         logger.error(
@@ -75,9 +81,8 @@ async def run_approval_integrations(
     # ── 3. Calendar — create calendar hold ───────────────────────────────────
     calendar_result: dict[str, Any] = {"status": "not_attempted"}
     try:
-        calendar_result = create_calendar_hold(
-            booking=booking,
-            access_token=access_token,
+        calendar_result = await asyncio.to_thread(
+            create_calendar_hold, booking=booking, access_token=access_token
         )
     except Exception as exc:
         logger.error(
@@ -89,9 +94,8 @@ async def run_approval_integrations(
     # ── 4. Sheets — append advisor export row ─────────────────────────────────
     sheets_result: dict[str, Any] = {"status": "not_attempted"}
     try:
-        sheets_result = append_advisor_sheet_row(
-            booking=booking,
-            access_token=access_token,
+        sheets_result = await asyncio.to_thread(
+            append_advisor_sheet_row, booking=booking, access_token=access_token
         )
     except Exception as exc:
         logger.error(
