@@ -51,16 +51,41 @@ Implemented routers in this repo:
   - `GET /api/v1/pulse/history`
   - `POST /api/v1/pulse/subscribe`
   - `POST /api/v1/pulse/unsubscribe`
+  - `POST /api/v1/pulse/send-now`
 - Customer chat: [`backend/app/api/v1/chat.py`](backend/app/api/v1/chat.py)
   - `POST /api/v1/chat/message`
   - `GET /api/v1/chat/prompts`
   - `GET /api/v1/chat/history/{session_id}`
 - Automated eval runner: [`backend/app/api/v1/evals.py`](backend/app/api/v1/evals.py) → `POST /api/v1/evals/run` (supports suites: phase1/phase2/phase3)
+- Booking: [`backend/app/api/v1/booking.py`](backend/app/api/v1/booking.py)
+  - `POST /api/v1/booking/create`
+  - `GET /api/v1/booking/{booking_id}`
+  - `POST /api/v1/booking/cancel`
+- Advisor: [`backend/app/api/v1/advisor.py`](backend/app/api/v1/advisor.py)
+  - `GET /api/v1/advisor/pending`
+  - `GET /api/v1/advisor/upcoming`
+  - `POST /api/v1/advisor/approve/{booking_id}`
+  - `POST /api/v1/advisor/reject/{booking_id}`
+- Approval (alternate IDs): [`backend/app/api/v1/approval.py`](backend/app/api/v1/approval.py)
+  - `POST /api/v1/approval/{approval_id}/approve`
+  - `POST /api/v1/approval/{approval_id}/reject`
+- Google OAuth (Phase 7): [`backend/app/api/v1/auth.py`](backend/app/api/v1/auth.py)
+  - `GET /api/v1/auth/google/login`
+  - `GET /api/v1/auth/google/callback`
+- Scheduler webhook (Phase 7): [`backend/app/api/v1/internal.py`](backend/app/api/v1/internal.py)
+  - `POST /api/v1/internal/scheduler/pulse` (Bearer `SCHEDULER_SHARED_SECRET`)
 
-Booking/Advisor workflow endpoints are specified in `Docs/Rules.md` (phases 5–6) but may not yet be fully wired as active v1 routers in this codebase.
+Voice remains out of scope for Phases 1–7 verification: [`backend/app/api/v1/voice.py`](backend/app/api/v1/voice.py) → `501` stub until Phase 8.
 
 ### Supabase schema scripts
-- Initial schema (Phase 1–2): `infra/supabase/phase1_phase2_schema.sql`
+Apply in dependency order (all additive migrations under `infra/supabase/`):
+
+- Phase 1–2: `infra/supabase/phase1_phase2_schema.sql`
+- Phase 3 chat: `infra/supabase/phase3_chat_schema.sql`
+- Phase 4 RAG: `infra/supabase/phase4_schema.sql`
+- Phase 5 bookings: `infra/supabase/phase5_schema.sql`
+- Phase 6 advisor indexes / notes: `infra/supabase/phase6_schema.sql`
+- Phase 7 integrations logs + OAuth tokens: `infra/supabase/phase7_schema.sql`
 
 ### Status/enums and response envelope
 - Standard API envelope + error shape: [`backend/app/schemas/common.py`](backend/app/schemas/common.py) (`APIEnvelope`, `ErrorDetail`)

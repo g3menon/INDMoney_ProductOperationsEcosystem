@@ -21,7 +21,8 @@ api_router.include_router(dashboard.router, tags=["dashboard"])
 api_router.include_router(pulse.router, tags=["pulse"])
 api_router.include_router(chat.router, tags=["chat"])
 api_router.include_router(evals.router, tags=["evals"])
-# Phase 4–8 stubs — return 501 Not Implemented until those phases are built.
+# Booking/advisor workflows are live; auth + internal scheduler are Phase 7.
+# Voice remains a Phase 8 stub (501 until implemented).
 api_router.include_router(advisor.router, tags=["advisor"])
 api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(internal.router, tags=["internal"])

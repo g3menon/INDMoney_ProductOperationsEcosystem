@@ -14,6 +14,7 @@ from app.schemas.pulse import (
     SubscribeResult,
     WeeklyPulse,
 )
+from app.services.scheduler_service import send_latest_pulse_to_subscribers
 from app.services.pulse_workflow_service import generate_weekly_pulse, get_current_pulse, get_pulse_history
 
 router = APIRouter(prefix="/pulse")
@@ -45,29 +46,11 @@ async def history(limit: int = 20) -> APIEnvelope[list[WeeklyPulse]]:
 async def send_now() -> APIEnvelope[SendNowResult]:
     """Trigger an immediate pulse send to all active subscribers.
 
-    Phase 2: loads latest pulse and active subscriber list, returns a mock
-    queued response. Actual Gmail MCP delivery is wired in Phase 7.
+    Phase 7: uses the same sending path as the scheduler webhook.
     """
     settings = get_settings()
-    pulse = await get_current_pulse(settings)
-    pulse_id = pulse.pulse_id if pulse else "no-pulse"
-
-    sub_repo = get_subscription_repository(settings)
-    # Retrieve active subscriber emails; fall back gracefully if none.
-    try:
-        active_emails: list[str] = []
-        if hasattr(sub_repo, "active"):
-            active_emails = list(sub_repo.active)  # type: ignore[attr-defined]
-        else:
-            active_emails = []
-    except Exception:
-        active_emails = []
-
-    return APIEnvelope(
-        success=True,
-        message="pulse_send_queued",
-        data=SendNowResult(sent_to=active_emails, pulse_id=pulse_id, status="queued"),
-    )
+    result = await send_latest_pulse_to_subscribers(settings=settings, correlation_id=None)
+    return APIEnvelope(success=True, message="pulse_send_triggered", data=result)
 
 
 @router.post("/subscribe", response_model=APIEnvelope[SubscribeResult])

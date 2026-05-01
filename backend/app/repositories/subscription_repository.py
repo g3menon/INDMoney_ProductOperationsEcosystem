@@ -19,6 +19,8 @@ class SubscriptionRepository(Protocol):
 
     async def count_active(self) -> int: ...
 
+    async def list_active(self) -> list[str]: ...
+
 
 @dataclass
 class InMemorySubscriptionRepository:
@@ -38,6 +40,9 @@ class InMemorySubscriptionRepository:
     async def count_active(self) -> int:
         return len(self.active)
 
+    async def list_active(self) -> list[str]:
+        return sorted(self.active)
+
 
 class SupabaseSubscriptionRepository:
     def __init__(self, settings: Settings) -> None:
@@ -56,6 +61,18 @@ class SupabaseSubscriptionRepository:
     async def count_active(self) -> int:
         res = self._client.table("pulse_subscriptions").select("email", count="exact").eq("active", True).execute()
         return int(getattr(res, "count", 0) or 0)
+
+    async def list_active(self) -> list[str]:
+        res = (
+            self._client.table("pulse_subscriptions")
+            .select("email")
+            .eq("active", True)
+            .order("updated_at", desc=True)
+            .limit(1000)
+            .execute()
+        )
+        rows = res.data or []
+        return [str(r["email"]).lower() for r in rows if r.get("email")]
 
 
 _MEM_SUBS: InMemorySubscriptionRepository | None = None
