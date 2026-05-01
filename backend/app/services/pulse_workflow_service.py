@@ -163,6 +163,8 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
             if not themes:
                 raise ValueError("empty_themes")
         except Exception as exc:
+            if settings.app_env not in ("prod", "staging"):
+                raise
             degraded = True
             exc_str = str(exc).lower()
             if any(k in exc_str for k in ("rate_limit", "tokens_per_minute", "tpm")):
@@ -204,6 +206,8 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
             if not narrative:
                 raise ValueError("empty_narrative")
         except Exception as exc:
+            if settings.app_env not in ("prod", "staging"):
+                raise
             degraded = True
             degraded_reason = (degraded_reason + ";") if degraded_reason else ""
             degraded_reason += f"gemini_degraded:{type(exc).__name__}"
@@ -226,7 +230,7 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
     metrics = PulseMetrics(reviews_considered=len(cleaned), average_rating=avg, lookback_weeks=req.lookback_weeks)
 
     pulse = WeeklyPulse(
-        pulse_id=f"PULSE-{datetime.utcnow().strftime('%Y%m%d')}-{uuid4().hex[:8]}",
+        pulse_id=f"PULSE-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid4().hex[:8]}",
         metrics=metrics,
         themes=themes,
         quotes=quotes,

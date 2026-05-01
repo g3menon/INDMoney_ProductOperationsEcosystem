@@ -78,26 +78,30 @@ class SupabaseChatRepository:
     async def create_session(self) -> str:
         sid = f"CS-{uuid4().hex[:12].upper()}"
         now = datetime.now(timezone.utc).isoformat()
-        self._client.table("chat_sessions").insert({"id": sid, "created_at": now}).execute()
+        await asyncio.to_thread(
+            lambda: self._client.table("chat_sessions").insert({"id": sid, "created_at": now}).execute()
+        )
         return sid
 
     async def add_message(self, session_id: str, role: ChatRole, content: str) -> ChatMessage:
         mid = f"MSG-{uuid4().hex[:12].upper()}"
         now = datetime.now(timezone.utc).isoformat()
-        self._client.table("chat_messages").insert(
-            {
-                "id": mid,
-                "session_id": session_id,
-                "role": role,
-                "content": content,
-                "created_at": now,
-            }
-        ).execute()
+        await asyncio.to_thread(
+            lambda: self._client.table("chat_messages").insert(
+                {
+                    "id": mid,
+                    "session_id": session_id,
+                    "role": role,
+                    "content": content,
+                    "created_at": now,
+                }
+            ).execute()
+        )
         return ChatMessage(id=mid, session_id=session_id, role=role, content=content, created_at=now)
 
     async def get_history(self, session_id: str) -> list[ChatMessage]:
-        res = (
-            self._client.table("chat_messages")
+        res = await asyncio.to_thread(
+            lambda: self._client.table("chat_messages")
             .select("*")
             .eq("session_id", session_id)
             .order("created_at", desc=False)

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Any
@@ -20,6 +21,8 @@ from app.core.config import Settings
 from app.core.security import encrypt_token
 
 logger = logging.getLogger(__name__)
+
+_PENDING_STATES: dict[str, float] = {}
 
 _AUTH_BASE = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -49,7 +52,18 @@ def build_login_url(settings: Settings) -> tuple[str, str]:
         "include_granted_scopes": "true",
         "state": state,
     }
+    _PENDING_STATES[state] = time.time()
     return f"{_AUTH_BASE}?{urllib.parse.urlencode(params)}", state
+
+
+def validate_and_consume_state(state: str) -> bool:
+    created = _PENDING_STATES.get(state)
+    if created is None:
+        return False
+    if time.time() - created >= 600:
+        return False
+    del _PENDING_STATES[state]
+    return True
 
 
 def _get_supabase(settings: Settings) -> Client:

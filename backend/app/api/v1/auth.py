@@ -11,7 +11,11 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.core.config import get_settings
-from app.services.google_oauth_service import build_login_url, exchange_code_and_store_tokens
+from app.services.google_oauth_service import (
+    build_login_url,
+    exchange_code_and_store_tokens,
+    validate_and_consume_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +34,10 @@ async def google_login() -> RedirectResponse:
 
 
 @router.get("/google/callback")
-async def google_callback(code: str = Query(...)) -> JSONResponse:
+async def google_callback(code: str = Query(...), state: str = Query(...)) -> JSONResponse:
     settings = get_settings()
+    if not validate_and_consume_state(state):
+        raise HTTPException(status_code=400, detail="invalid_oauth_state")
     try:
         data = await exchange_code_and_store_tokens(settings=settings, code=code)
     except Exception as exc:
