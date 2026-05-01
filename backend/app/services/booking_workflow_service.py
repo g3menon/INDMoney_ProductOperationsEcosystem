@@ -88,7 +88,7 @@ def _generate_booking_id() -> str:
     probability within a single calendar day.
     """
     today = datetime.now(timezone.utc).strftime("%Y%m%d")
-    suffix = uuid4().hex[:4].upper()
+    suffix = uuid4().hex[:8].upper()
     return f"BK-{today}-{suffix}"
 
 
