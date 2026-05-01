@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 
 from app.core.config import get_settings
+from app.main import limiter
 from app.repositories.booking_repository import get_booking_repository
 from app.schemas.booking import BookingCancelRequest, BookingCreateRequest, BookingDetail
 from app.schemas.common import APIEnvelope, ErrorDetail
@@ -40,7 +41,12 @@ router = APIRouter(prefix="/booking")
 
 
 @router.post("/create", response_model=APIEnvelope[BookingDetail], status_code=status.HTTP_201_CREATED)
-async def create_booking_route(body: BookingCreateRequest, response: Response) -> APIEnvelope[BookingDetail]:
+@limiter.limit("10/minute")
+async def create_booking_route(
+    request: Request,
+    body: BookingCreateRequest,
+    response: Response,
+) -> APIEnvelope[BookingDetail]:
     """Create a new booking from the customer flow.
 
     Returns 201 with the new BookingDetail on success.

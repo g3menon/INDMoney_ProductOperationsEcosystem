@@ -6,9 +6,10 @@ Phase 4: ChatMessageResult now carries citations from RAG-grounded answers (Rule
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.core.config import get_settings
+from app.main import limiter
 from app.repositories.chat_repository import get_chat_repository
 from app.schemas.chat import ChatMessage, ChatMessageRequest, ChatMessageResult, CitationSource, PromptChip
 from app.schemas.common import APIEnvelope
@@ -19,7 +20,8 @@ router = APIRouter(prefix="/chat")
 
 
 @router.post("/message", response_model=APIEnvelope[ChatMessageResult])
-async def post_message(body: ChatMessageRequest) -> APIEnvelope[ChatMessageResult]:
+@limiter.limit("15/minute")
+async def post_message(request: Request, body: ChatMessageRequest) -> APIEnvelope[ChatMessageResult]:
     settings = get_settings()
     repo = get_chat_repository(settings)
 
