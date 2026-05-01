@@ -211,6 +211,18 @@ class Settings(BaseSettings):
         """Allow one or more frontend origins (comma-separated)."""
         return _split_origins(self.frontend_base_url or "")
 
+    @model_validator(mode="after")
+    def _validate_cors(self) -> Settings:
+        """Warn at settings load if origins are incompatible with CORS allow_credentials (see main.py)."""
+        origins = self.cors_origins()
+        # app.main configures CORSMiddleware with allow_credentials=True; wildcard Origin is invalid then.
+        if "*" in origins:
+            raise ValueError(
+                "Wildcard CORS origin '*' cannot be used with allow_credentials=True; "
+                "set FRONTEND_BASE_URL to explicit origins (comma-separated).",
+            )
+        return self
+
     def safe_public_dict(self) -> dict[str, Any]:
         """Serializable snapshot for health/debug: no secrets (P1.4)."""
         return {
