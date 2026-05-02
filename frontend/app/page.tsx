@@ -11,7 +11,6 @@ import { InlineStatus } from "@/components/shared/InlineStatus";
 import { LoadingState } from "@/components/shared/LoadingState";
 import type { ApiEnvelope } from "@/lib/api-client";
 import { fetchJson } from "@/lib/api-client";
-import { BADGE_GROUPS } from "@/lib/badge-config";
 import type { TabId } from "@/lib/constants";
 
 type HealthData = {
@@ -46,7 +45,7 @@ export default function Page() {
       setHealth(h);
       setBadges(b);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? e.message : "We could not refresh service status.");
       setHealth(null);
       setBadges(null);
     } finally {
@@ -64,62 +63,40 @@ export default function Page() {
   }, [health, badges]);
 
   const badgeStrip = useMemo(() => {
-    if (loading) return <LoadingState label="Loading backend status…" />;
+    if (loading) return <LoadingState label="Checking services" />;
     if (error) {
-      return <ErrorState title="Backend unreachable" message={error} onRetry={() => void load()} />;
+      return <ErrorState title="Service check needs attention" message={error} onRetry={() => void load()} />;
     }
     if (!health || !badges) {
-      return <ErrorState title="Unexpected response" message="Missing health or badge payload." onRetry={() => void load()} />;
+      return (
+        <ErrorState
+          title="Status unavailable"
+          message="We could not refresh the dashboard status."
+          onRetry={() => void load()}
+        />
+      );
     }
 
     const healthTone =
       health.data?.status === "ok" ? "success" : health.data?.status === "degraded" ? "warning" : "neutral";
-    const supa = Boolean(badges.data?.supabase_connected);
+    const supabaseConnected = Boolean(badges.data?.supabase_connected);
     return (
-      <div className="flex flex-col items-start gap-2 md:items-end">
+      <>
         <InlineStatus
           tone={healthTone}
-          label={`API ${health.data?.status ?? "unknown"} · correlation ${health.data?.correlation_id ?? "—"}`}
+          label={health.data?.status === "ok" ? "Services healthy" : `Services ${health.data?.status ?? "checking"}`}
         />
-        <InlineStatus tone={supa ? "success" : "warning"} label={`Supabase reachability: ${supa ? "OK" : "Check keys"}`} />
-        {partial ? (
-          <InlineStatus tone="warning" label="Partial: one of the envelope checks reported unsuccessful." />
-        ) : null}
-      </div>
+        <InlineStatus tone={supabaseConnected ? "success" : "warning"} label={supabaseConnected ? "Data connected" : "Data connection pending"} />
+        {partial ? <InlineStatus tone="warning" label="Some data may be delayed" /> : null}
+      </>
     );
   }, [badges, error, health, loading, partial, load]);
 
-  const tabBadges = badges?.data?.[tab];
-
   return (
     <DashboardShell activeTab={tab} onTabChange={setTab} badgeStrip={badgeStrip}>
-      <section className="grid gap-6 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          {tab === "customer" ? <CustomerTab /> : null}
-          {tab === "product" ? <ProductTab /> : null}
-          {tab === "advisor" ? <AdvisorTab /> : null}
-        </div>
-        <aside className="space-y-4">
-          <div className="rounded-lg border border-groww-border bg-groww-panel p-4">
-            <h2 className="text-sm font-semibold text-white">Badge preview · {tab}</h2>
-            <p className="mt-1 text-xs text-slate-400">Counts are backend-owned (`GET /api/v1/dashboard/badges`).</p>
-            <dl className="mt-4 space-y-3 text-sm">
-              {BADGE_GROUPS[tab].map((row) => {
-                const raw = tabBadges ? (tabBadges as Record<string, unknown>)[row.key] : undefined;
-                const value =
-                  typeof raw === "boolean" ? (raw ? "Yes" : "No") : raw === null || raw === undefined ? "—" : String(raw);
-                return (
-                  <div key={row.key} className="flex flex-col rounded-md border border-groww-border/60 bg-groww-ink/40 p-3">
-                    <dt className="text-xs font-semibold text-slate-200">{row.label}</dt>
-                    <dd className="mt-1 text-lg font-semibold text-white">{value}</dd>
-                    <p className="mt-1 text-[11px] text-slate-500">{row.description}</p>
-                  </div>
-                );
-              })}
-            </dl>
-          </div>
-        </aside>
-      </section>
+      {tab === "customer" ? <CustomerTab /> : null}
+      {tab === "product" ? <ProductTab /> : null}
+      {tab === "advisor" ? <AdvisorTab /> : null}
     </DashboardShell>
   );
 }

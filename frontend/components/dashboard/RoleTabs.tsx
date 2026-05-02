@@ -3,6 +3,12 @@
 import type { TabId } from "@/lib/constants";
 import { TAB_LABELS, TABS } from "@/lib/constants";
 
+const TAB_COPY: Record<TabId, string> = {
+  customer: "AI assistant",
+  product: "Weekly Pulse",
+  advisor: "Approvals",
+};
+
 export function RoleTabs({
   active,
   onChange,
@@ -11,7 +17,11 @@ export function RoleTabs({
   onChange: (tab: TabId) => void;
 }) {
   return (
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label="Dashboard areas">
+    <div
+      className="grid gap-1 rounded-2xl border border-groww-border bg-groww-surfaceSoft p-1"
+      role="tablist"
+      aria-label="Dashboard areas"
+    >
       {TABS.map((tab) => {
         const selected = tab === active;
         return (
@@ -23,12 +33,13 @@ export function RoleTabs({
             tabIndex={selected ? 0 : -1}
             className={
               selected
-                ? "rounded-md bg-groww-accent px-4 py-2 text-sm font-semibold text-groww-ink"
-                : "rounded-md border border-groww-border bg-groww-panel px-4 py-2 text-sm font-medium text-slate-200 hover:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent"
+                ? "focus-ring rounded-xl bg-white px-4 py-3 text-left text-sm font-semibold text-groww-text shadow-sm"
+                : "focus-ring rounded-xl px-4 py-3 text-left text-sm font-semibold text-groww-muted transition hover:bg-white/70 hover:text-groww-text"
             }
             onClick={() => onChange(tab)}
           >
-            {TAB_LABELS[tab]}
+            <span className="block">{TAB_LABELS[tab]}</span>
+            <span className="mt-0.5 block text-xs font-medium text-groww-faint">{TAB_COPY[tab]}</span>
           </button>
         );
       })}

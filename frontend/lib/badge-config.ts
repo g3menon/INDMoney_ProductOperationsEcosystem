@@ -13,7 +13,7 @@ export const BADGE_GROUPS: Record<
   customer: [
     { key: "booking_in_progress", label: "Booking in progress", description: "Active booking drafts" },
     { key: "follow_up_available", label: "Follow-ups", description: "Open follow-up items" },
-    { key: "voice_ready", label: "Voice ready", description: "Voice adapter availability (Phase 8)" },
+    { key: "voice_ready", label: "Voice ready", description: "Voice capture availability" },
   ],
   product: [
     { key: "pulse_ready", label: "Pulse ready", description: "Latest pulse available for PM review" },
