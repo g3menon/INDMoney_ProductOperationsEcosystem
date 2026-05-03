@@ -21,6 +21,15 @@ type WeeklyPulse = {
   degraded_reason?: string | null;
 };
 
+type SubscribeResult = {
+  email: string;
+  status: "subscribed" | "unsubscribed";
+  updated_at: string;
+  pulse_id?: string | null;
+  delivery_status?: "sent" | "skipped" | "failed" | "no_pulse" | null;
+  delivery_message?: string | null;
+};
+
 const OWNER_POOL = ["PM", "Ops", "Support", "Advisor Enablement"];
 
 function themeCode(theme: string, index: number) {
@@ -46,6 +55,39 @@ function actionTitle(action: string) {
 function actionBody(action: string) {
   if (action.length > 72) return action;
   return `Turn this signal into a scoped product or operations follow-up, with a clear owner and measurable next step.`;
+}
+
+function actionWhy(action: string) {
+  const lower = action.toLowerCase();
+  if (lower.includes("instrument") || lower.includes("metric")) return "Better instrumentation helps PMs separate isolated feedback from repeatable workflow friction.";
+  if (lower.includes("support") || lower.includes("status")) return "Clearer customer communication can reduce avoidable support and advisor escalations.";
+  if (lower.includes("triage") || lower.includes("owner")) return "A named owner prevents recurring review themes from staying as dashboard-only observations.";
+  return "This converts customer language into a concrete follow-up that can be tracked by Product Operations.";
+}
+
+function readableDegradedReason(reason?: string | null) {
+  if (!reason) return "The pulse is partial because one or more analysis inputs were unavailable.";
+  if (reason.includes("low_review_volume")) {
+    const count = reason.match(/low_review_volume:(\d+)/)?.[1];
+    return `The pulse is partial because ${count ?? "fewer than 150"} reviews were available. Target volume is 150-200 reviews.`;
+  }
+  if (reason.includes("groq")) return "Theme clustering used the deterministic fallback because the theme provider was unavailable.";
+  if (reason.includes("gemini")) return "Narrative synthesis used a deterministic summary because the writing provider was unavailable.";
+  return "The pulse is partial, but the available review signals are still shown.";
+}
+
+function ProductIcon({ name }: { name: "reviews" | "rating" | "theme" | "advisor" }) {
+  const paths = {
+    reviews: "M5 5h14M5 10h14M5 15h9M4 3h16v18H4z",
+    rating: "m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 16.8 6.6 19.6l1-6.1-4.4-4.3 6.1-.9z",
+    theme: "M4 12h4l2-7 4 14 2-7h4M5 20h14",
+    advisor: "M8 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0Zm-3 14a7 7 0 0 1 14 0M18 14l2 2 3-4",
+  };
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d={paths[name]} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 function inferBookingReasons(pulse: WeeklyPulse | null) {
@@ -82,11 +124,11 @@ export function ProductTab() {
   const [email, setEmail] = useState("");
   const [actionBusy, setActionBusy] = useState<"none" | "subscribe" | "unsubscribe" | "generate">("none");
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [actionTone, setActionTone] = useState<"success" | "warning" | "danger" | "neutral">("neutral");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setActionMsg(null);
     try {
       const [currentPulse, pulseHistory] = await Promise.all([
         fetchJson<WeeklyPulse | null>("/api/v1/pulse/current"),
@@ -115,17 +157,20 @@ export function ProductTab() {
   const inferredDemand = bookingReasons.reduce((sum, item) => sum + item.count, 0);
 
   const generateSample = useCallback(async () => {
-    setActionBusy("generate");
-    setActionMsg(null);
+      setActionBusy("generate");
+      setActionMsg(null);
+      setActionTone("neutral");
     try {
       await fetchJson<WeeklyPulse>("/api/v1/pulse/generate", {
         method: "POST",
         body: JSON.stringify({ use_fixture: true, lookback_weeks: 8 }),
       });
       setActionMsg("Sample pulse generated for local review.");
+      setActionTone("success");
       await load();
     } catch (e) {
       setActionMsg(e instanceof Error ? e.message : "Sample pulse could not be generated.");
+      setActionTone("danger");
     } finally {
       setActionBusy("none");
     }
@@ -134,15 +179,36 @@ export function ProductTab() {
   const subscribe = useCallback(async () => {
     setActionBusy("subscribe");
     setActionMsg(null);
+    setActionTone("neutral");
     try {
-      await fetchJson<{ email: string; status: string; updated_at: string }>("/api/v1/pulse/subscribe", {
+      const trimmedEmail = email.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        setActionMsg("Enter a valid email address.");
+        setActionTone("danger");
+        return;
+      }
+      const response = await fetchJson<SubscribeResult>("/api/v1/pulse/subscribe", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: trimmedEmail }),
       });
-      setActionMsg("Subscription saved. The current pulse will be included in the weekly email.");
+      const delivery = response.data?.delivery_status;
+      if (delivery === "sent") {
+        setActionMsg("You're subscribed. The current pulse was sent, and future pulses arrive every Monday at 10:00 AM IST.");
+        setActionTone("success");
+      } else if (delivery === "skipped") {
+        setActionMsg(response.data?.delivery_message ?? "You're subscribed. Email delivery needs workspace mail setup.");
+        setActionTone("warning");
+      } else if (delivery === "no_pulse") {
+        setActionMsg("You're subscribed. Generate a pulse to send the first email, then future pulses arrive every Monday at 10:00 AM IST.");
+        setActionTone("warning");
+      } else {
+        setActionMsg(response.data?.delivery_message ?? "Subscription saved, but the current pulse email could not be delivered.");
+        setActionTone("danger");
+      }
       await load();
     } catch (e) {
       setActionMsg(e instanceof Error ? e.message : "Subscription could not be saved.");
+      setActionTone("danger");
     } finally {
       setActionBusy("none");
     }
@@ -151,15 +217,18 @@ export function ProductTab() {
   const unsubscribe = useCallback(async () => {
     setActionBusy("unsubscribe");
     setActionMsg(null);
+    setActionTone("neutral");
     try {
       await fetchJson<{ email: string; status: string; updated_at: string }>("/api/v1/pulse/unsubscribe", {
         method: "POST",
         body: JSON.stringify({ email }),
       });
       setActionMsg("Subscription paused for this email.");
+      setActionTone("success");
       await load();
     } catch (e) {
       setActionMsg(e instanceof Error ? e.message : "Subscription could not be updated.");
+      setActionTone("danger");
     } finally {
       setActionBusy("none");
     }
@@ -206,18 +275,20 @@ export function ProductTab() {
 
         {pulse?.degraded ? (
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            Analysis is in degraded mode. Only {pulse.metrics.reviews_considered} reviews were available in this run.
-            {pulse.degraded_reason ? <span className="block pt-1 text-amber-700">{pulse.degraded_reason}</span> : null}
+            {pulse.metrics.reviews_considered < 150
+              ? `Analysis is in degraded mode. Only ${pulse.metrics.reviews_considered} reviews were available in this run.`
+              : "Analysis is in degraded mode. The pulse uses the available review set with fallback analysis where needed."}
+            <span className="block pt-1 text-amber-700">{readableDegradedReason(pulse.degraded_reason)}</span>
           </div>
         ) : null}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          { label: "Reviews analyzed", value: pulse?.metrics.reviews_considered ?? 0, detail: "Cleaned review inputs", accent: false },
-          { label: "Average rating", value: pulse ? pulse.metrics.average_rating.toFixed(2) : "0.00", detail: "Across reviewed inputs", accent: false },
-          { label: "Top issue theme", value: topTheme, detail: "Highest mention cluster", accent: true },
-          { label: "Advisor booking intent", value: inferredDemand, detail: "Inferred from current themes", accent: false },
+          { label: "Reviews analyzed", value: pulse?.metrics.reviews_considered ?? 0, detail: "Cleaned review inputs", accent: false, icon: "reviews" as const },
+          { label: "Average rating", value: pulse ? pulse.metrics.average_rating.toFixed(2) : "0.00", detail: "Across reviewed inputs", accent: false, icon: "rating" as const },
+          { label: "Top issue theme", value: topTheme, detail: "Highest mention cluster", accent: true, icon: "theme" as const },
+          { label: "Advisor booking intent", value: inferredDemand, detail: "Inferred from current themes", accent: false, icon: "advisor" as const },
         ].map((card) => (
           <div
             key={card.label}
@@ -227,8 +298,8 @@ export function ProductTab() {
                 : "soft-card p-5"
             }
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-xs font-bold text-groww-accent shadow-sm">
-              {card.label.slice(0, 2).toUpperCase()}
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-groww-accent shadow-sm">
+              <ProductIcon name={card.icon} />
             </div>
             <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">{card.label}</p>
             <p className="mt-2 line-clamp-2 text-2xl font-semibold tracking-tight text-groww-text">{card.value}</p>
@@ -245,8 +316,26 @@ export function ProductTab() {
           </div>
         </div>
         <div className="mt-4 rounded-2xl bg-groww-surfaceSoft p-5 text-base leading-8 text-groww-text">
-          {pulse?.narrative ??
-            "No pulse has been generated yet. Once review ingestion and pulse generation complete, this section will summarize the main customer themes and operational opportunities."}
+          <p>
+            {pulse?.narrative ??
+              "No pulse has been generated yet. Once review ingestion and pulse generation complete, this section will summarize the main customer themes and operational opportunities."}
+          </p>
+          {pulse ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">Primary signal</p>
+                <p className="mt-2 text-sm font-semibold text-groww-text">{topTheme}</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">Evidence</p>
+                <p className="mt-2 text-sm font-semibold text-groww-text">{pulse.quotes.length} customer quotes</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">PM focus</p>
+                <p className="mt-2 text-sm font-semibold text-groww-text">Reduce repeat advisor escalations</p>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -296,16 +385,20 @@ export function ProductTab() {
           <p className="mt-1 text-sm text-groww-muted">Inferred from pulse themes until direct booking analytics are available.</p>
           <div className="mt-5 space-y-4">
             {bookingReasons.map((reason) => (
-              <div key={reason.category}>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="font-semibold text-groww-text">{reason.category}</span>
-                  <span className="text-groww-muted">{reason.count}</span>
+              <article key={reason.category} className="rounded-2xl border border-groww-border bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-groww-text">{reason.category}</p>
+                    <p className="mt-1 text-xs font-semibold text-groww-faint">Inferred advisor demand</p>
+                  </div>
+                  <span className="text-xl font-semibold text-groww-text">{reason.count}</span>
                 </div>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-groww-surfaceSoft">
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-groww-surfaceSoft">
                   <div className="h-full rounded-full bg-groww-accentBlue" style={{ width: `${reason.percent}%` }} />
                 </div>
-                <p className="mt-2 text-xs leading-5 text-groww-muted">{reason.explanation}</p>
-              </div>
+                <p className="mt-3 text-sm leading-6 text-groww-muted">{reason.explanation}</p>
+                <p className="mt-2 text-xs font-semibold text-groww-text">Why it matters: customers in this category are likely asking for confidence, not just information.</p>
+              </article>
             ))}
           </div>
         </div>
@@ -316,16 +409,24 @@ export function ProductTab() {
           <h3 className="text-lg font-semibold text-groww-text">Voice of customer</h3>
           <p className="mt-1 text-sm text-groww-muted">Representative quotes from the current pulse.</p>
           <div className="mt-5 grid gap-3">
-            {(pulse?.quotes ?? []).slice(0, 6).map((quote, index) => (
+            {(pulse?.quotes ?? []).slice(0, 6).map((quote, index) => {
+              const theme = pulse?.themes[index % Math.max(pulse.themes.length, 1)]?.theme;
+              const sentiment = quote.rating <= 2 ? "Friction" : quote.rating >= 4 ? "Positive" : "Mixed";
+              return (
               <article key={quote.review_id} className="rounded-2xl border border-groww-border bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <span className="font-mono text-xs font-semibold text-groww-accent">VOC-{String(index + 1).padStart(2, "0")}</span>
                   <Stars rating={quote.rating} />
                 </div>
-                <p className="mt-3 text-sm leading-6 text-groww-text">"{quote.quote}"</p>
-                <p className="mt-3 text-xs text-groww-faint">Review {quote.review_id}</p>
+                <p className="mt-3 text-sm leading-6 text-groww-text">{quote.quote}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="pill-chip">Review {quote.review_id}</span>
+                  <span className="pill-chip">{sentiment}</span>
+                  {theme ? <span className="pill-chip">{theme}</span> : null}
+                </div>
               </article>
-            ))}
+              );
+            })}
             {!pulse || pulse.quotes.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-groww-border bg-white p-6 text-sm text-groww-muted">
                 Customer quotes appear here after the pulse has review context.
@@ -350,6 +451,8 @@ export function ProductTab() {
                 </div>
                 <h4 className="mt-3 text-sm font-semibold text-groww-text">{actionTitle(action)}</h4>
                 <p className="mt-2 text-sm leading-6 text-groww-muted">{actionBody(action)}</p>
+                <p className="mt-3 text-xs font-semibold text-groww-text">Why this matters</p>
+                <p className="mt-1 text-sm leading-6 text-groww-muted">{actionWhy(action)}</p>
                 <button
                   type="button"
                   className="focus-ring mt-3 rounded-full border border-groww-border bg-white px-3 py-2 text-xs font-semibold text-groww-muted hover:text-groww-accent"
@@ -399,7 +502,21 @@ export function ProductTab() {
                 {actionBusy === "unsubscribe" ? "Updating..." : "Unsubscribe"}
               </button>
             </div>
-            {actionMsg ? <p className="rounded-xl bg-groww-surfaceSoft px-3 py-2 text-sm text-groww-muted">{actionMsg}</p> : null}
+            {actionMsg ? (
+              <p
+                className={
+                  actionTone === "success"
+                    ? "rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                    : actionTone === "danger"
+                      ? "rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700"
+                      : actionTone === "warning"
+                        ? "rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700"
+                        : "rounded-xl bg-groww-surfaceSoft px-3 py-2 text-sm text-groww-muted"
+                }
+              >
+                {actionMsg}
+              </p>
+            ) : null}
           </div>
         </div>
 

@@ -9,6 +9,7 @@ export type BookingSummary = {
   display_timezone?: string;
   status?: string;
   issue_summary?: string;
+  booking_reason?: string;
 };
 
 export function BookingCard({ booking }: { booking: BookingSummary }) {
@@ -34,6 +35,9 @@ export function BookingCard({ booking }: { booking: BookingSummary }) {
             <p className="mt-1 text-sm text-groww-muted">
               Requested slot: {slot} {booking.display_timezone ?? "IST"}
             </p>
+          ) : null}
+          {booking.booking_reason ? (
+            <p className="mt-2 text-sm font-semibold text-groww-text">Reason: {booking.booking_reason}</p>
           ) : null}
           {booking.issue_summary ? <p className="mt-2 text-sm leading-6 text-groww-muted">{booking.issue_summary}</p> : null}
         </div>

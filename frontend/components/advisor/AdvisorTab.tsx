@@ -39,6 +39,16 @@ function slotLabel(item: AdvisorBookingItem) {
   return `${item.preferred_date} at ${item.preferred_time} IST`;
 }
 
+function bookingReason(item: AdvisorBookingItem) {
+  const [reason] = item.issue_summary.split(":");
+  return reason && reason.length < 40 ? reason : "Advisor support";
+}
+
+function bookingContext(item: AdvisorBookingItem) {
+  const [, ...rest] = item.issue_summary.split(":");
+  return (rest.join(":") || item.issue_summary).replace(/^ Chat summary:\s*/i, "").trim();
+}
+
 function isSameDate(date: string, offsetDays: number) {
   const target = new Date();
   target.setDate(target.getDate() + offsetDays);
@@ -102,7 +112,8 @@ function EmailPreview({ item }: { item: AdvisorBookingItem }) {
           Your Groww advisor session is confirmed for {slotLabel(item)}. We will use the booking ID {item.booking_id}
           for any follow-up.
         </p>
-        <p className="mt-2">Context for the advisor: {item.issue_summary}</p>
+        <p className="mt-2">Booking reason: {bookingReason(item)}</p>
+        <p className="mt-2">Context for the advisor: {bookingContext(item)}</p>
       </div>
     </div>
   );
@@ -298,7 +309,8 @@ export function AdvisorTab() {
                     </div>
                     <h4 className="mt-3 font-semibold text-groww-text">{item.customer_name}</h4>
                     <p className="mt-1 text-sm font-medium text-groww-muted">{slotLabel(item)}</p>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-groww-muted">{item.issue_summary}</p>
+                    <p className="mt-2 text-sm font-semibold text-groww-text">Reason: {bookingReason(item)}</p>
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-groww-muted">{bookingContext(item)}</p>
                     <p className="mt-2 text-xs text-groww-faint">Created {formatShortIso(item.created_at)}</p>
                   </div>
                   <div className="flex flex-wrap gap-2 lg:justify-end">
@@ -384,7 +396,8 @@ export function AdvisorTab() {
                           <CopyableId value={item.booking_id} />
                           <StatusDot status={item.status} />
                         </div>
-                        <p className="mt-2 text-sm leading-6 text-groww-muted">{item.issue_summary}</p>
+                        <p className="mt-2 text-sm font-semibold text-groww-text">Reason: {bookingReason(item)}</p>
+                        <p className="mt-1 text-sm leading-6 text-groww-muted">{bookingContext(item)}</p>
                       </div>
                       <button
                         type="button"
@@ -416,7 +429,7 @@ export function AdvisorTab() {
               className="focus-ring w-full rounded-xl border border-groww-border bg-white px-3 py-3 text-sm text-groww-text placeholder:text-groww-faint"
             />
             <div className="mt-4 overflow-hidden rounded-2xl border border-groww-border bg-white">
-              <div className="grid hidden-cols gap-3 border-b border-groww-border bg-groww-surfaceSoft px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-groww-faint md:grid md:grid-cols-[1.1fr_1fr_1fr_0.9fr]">
+              <div className="hidden gap-3 border-b border-groww-border bg-groww-surfaceSoft px-4 py-3 text-xs font-semibold uppercase tracking-[0.12em] text-groww-faint md:grid md:grid-cols-[1.1fr_1fr_1fr_0.9fr]">
                 <span>Booking ID</span>
                 <span>Created</span>
                 <span>Scheduled</span>

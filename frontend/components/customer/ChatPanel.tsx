@@ -47,7 +47,7 @@ function CitationCard({ citation }: { citation: CitationSource }) {
         </span>
         <span className="truncate font-semibold text-groww-text">{citation.title}</span>
       </div>
-      {citation.relevant_quote ? <p className="mt-1 line-clamp-2 text-groww-muted">"{citation.relevant_quote}"</p> : null}
+      {citation.relevant_quote ? <p className="mt-1 line-clamp-2 text-groww-muted">{citation.relevant_quote}</p> : null}
       <p className="mt-0.5 text-groww-faint">Last checked: {citation.last_checked}</p>
     </a>
   );

@@ -80,6 +80,9 @@ class SubscribeResult(BaseModel):
     email: str
     status: Literal["subscribed", "unsubscribed"]
     updated_at: datetime = Field(default_factory=lambda: datetime.utcnow())
+    pulse_id: str | None = None
+    delivery_status: Literal["sent", "skipped", "failed", "no_pulse"] | None = None
+    delivery_message: str | None = None
 
 
 class SendNowResult(BaseModel):

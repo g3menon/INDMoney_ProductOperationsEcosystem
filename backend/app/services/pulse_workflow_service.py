@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from uuid import uuid4
 
 from app.core.config import Settings
@@ -33,27 +33,45 @@ from app.schemas.pulse import (
 logger = logging.getLogger(__name__)
 
 
-def _fixture_raw_reviews() -> list[RawReview]:
+_FIXTURE_TOPICS: list[tuple[str, int, str]] = [
+    ("kyc", 2, "KYC verification keeps failing even after uploading documents. I need clearer next steps."),
+    ("sip", 1, "SIP mandate setup failed twice and the app did not explain what happened."),
+    ("withdrawal", 2, "Withdrawal timelines are confusing. I cannot tell when money will reach my bank."),
+    ("tax", 3, "Capital gains statements and tax documents are hard to find during filing season."),
+    ("login", 1, "OTP arrives late during login and the session expires before I can continue."),
+    ("performance", 2, "The portfolio screen loads slowly when checking mutual fund details."),
+    ("support", 2, "Support chat takes too long when I need help with account changes."),
+    ("nominee", 3, "Nominee update steps are unclear and I want advisor help before changing details."),
+    ("positive", 5, "The UI is clean and portfolio tracking is useful once everything is set up."),
+]
+
+
+def _fixture_raw_reviews(target: int = 180) -> list[RawReview]:
     today = date.today()
-    rows: list[RawReview] = [
-        RawReview(review_id="r1", rating=1, text="App keeps crashing during SIP setup. Please fix.", review_date=today),
-        RawReview(review_id="r2", rating=2, text="KYC verification takes too long and fails often.", review_date=today),
-        RawReview(review_id="r3", rating=4, text="Great UI but withdrawals are confusing. Need clearer steps.", review_date=today),
-        RawReview(review_id="r4", rating=1, text="Login OTP not received on time. Very frustrating.", review_date=today),
-        RawReview(review_id="r5", rating=5, text="Overall smooth experience. Love the portfolio view.", review_date=today),
-        RawReview(review_id="r6", rating=3, text="Support chat is slow. Response takes hours.", review_date=today),
-    ]
+    batch = uuid4().hex[:6]
+    rows: list[RawReview] = []
+    for idx in range(target):
+        topic, rating, text = _FIXTURE_TOPICS[idx % len(_FIXTURE_TOPICS)]
+        rows.append(
+            RawReview(
+                review_id=f"fixture-{today:%Y%m%d}-{batch}-{idx + 1:03d}",
+                rating=rating,
+                text=f"{text} Case {idx + 1} from {topic} feedback.",
+                review_date=today,
+            )
+        )
     return rows
 
 
 def _rule_based_themes(normalized: list[NormalizedReview]) -> tuple[list[PulseTheme], list[PulseQuote]]:
     texts = [n.text.lower() for n in normalized]
     keywords = {
-        "crash": ["crash", "crashing"],
-        "otp/login": ["otp", "login", "sign in"],
-        "kyc": ["kyc", "verification"],
-        "withdrawal": ["withdraw", "withdrawal", "redeem"],
-        "support": ["support", "chat", "help"],
+        "KYC and onboarding friction": ["kyc", "verification", "document", "onboarding"],
+        "SIP and mandate reliability": ["sip", "mandate", "autopay"],
+        "Withdrawals and timelines": ["withdraw", "withdrawal", "redeem", "timeline"],
+        "Statements and tax documents": ["statement", "tax", "capital gains", "filing"],
+        "Login and trust interruptions": ["otp", "login", "sign in", "session"],
+        "Support and account changes": ["support", "chat", "nominee", "account changes"],
     }
     theme_counts: dict[str, int] = {}
     for theme, kws in keywords.items():
@@ -63,7 +81,16 @@ def _rule_based_themes(normalized: list[NormalizedReview]) -> tuple[list[PulseTh
     for theme, cnt in sorted(theme_counts.items(), key=lambda x: x[1], reverse=True):
         if cnt <= 0:
             continue
-        themes.append(PulseTheme(theme=theme, summary=f"Mentions related to {theme}.", count=cnt))
+        themes.append(
+            PulseTheme(
+                theme=theme,
+                summary=(
+                    f"{cnt} customers mention {theme.lower()}, indicating repeated operational friction "
+                    "that can drive advisor demand or support escalation."
+                ),
+                count=cnt,
+            )
+        )
     if not themes:
         themes = [PulseTheme(theme="general", summary="Mixed feedback without a dominant theme.", count=len(normalized))]
 
@@ -138,8 +165,8 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
         try:
             groq = GroqClient(settings)
             prompt = pulse_theme_prompt(segmented_text)
-            out = groq.chat_json(prompt=prompt)
-            payload = json.loads(out) if out else {}
+            out = groq.chat_json(prompt=prompt, model=settings.llm_standard_model)
+            payload = _parse_json_object(out)
             themes = [PulseTheme.model_validate(t) for t in (payload.get("themes") or [])][:6]
             quotes = [PulseQuote.model_validate(q) for q in (payload.get("quotes") or [])][:8]
             # If Groq returns fewer than 3 quotes, supplement from full cleaned list
@@ -163,8 +190,6 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
             if not themes:
                 raise ValueError("empty_themes")
         except Exception as exc:
-            if settings.app_env not in ("prod", "staging"):
-                raise
             degraded = True
             exc_str = str(exc).lower()
             if any(k in exc_str for k in ("rate_limit", "tokens_per_minute", "tpm")):
@@ -178,6 +203,10 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
                 )
                 degraded_reason = "groq_tpm_limit"
             else:
+                logger.warning(
+                    "groq_theme_generation_degraded",
+                    extra={"error_type": type(exc).__name__, "error": str(exc)[:160]},
+                )
                 degraded_reason = f"groq_degraded:{type(exc).__name__}"
             themes, quotes = _rule_based_themes(cleaned)
     else:
@@ -200,15 +229,17 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
                 ensure_ascii=False,
             )
             out = await gemini.generate_text(weekly_pulse_prompt(theme_json))
-            payload = json.loads(out) if out and out.strip().startswith("{") else {}
+            payload = _parse_json_object(out)
             narrative = str(payload.get("narrative") or "").strip()
             actions = [str(a) for a in (payload.get("recommended_actions") or [])][:6]
             if not narrative:
                 raise ValueError("empty_narrative")
         except Exception as exc:
-            if settings.app_env not in ("prod", "staging"):
-                raise
             degraded = True
+            logger.warning(
+                "gemini_pulse_generation_degraded",
+                extra={"error_type": type(exc).__name__, "error": str(exc)[:160]},
+            )
             degraded_reason = (degraded_reason + ";") if degraded_reason else ""
             degraded_reason += f"gemini_degraded:{type(exc).__name__}"
     else:
@@ -217,7 +248,13 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
         degraded_reason += "gemini_key_missing_or_no_reviews"
 
     if not narrative:
-        narrative = "This week’s reviews highlight a few recurring friction points and a smaller set of positive signals."
+        top_theme = themes[0].theme if themes else "customer operations"
+        narrative = (
+            f"This week's feedback is concentrated around {top_theme}. "
+            f"The pulse considered {len(cleaned)} normalized reviews and shows where repeated customer friction may "
+            "increase support volume, advisor booking intent, or trust risk. Use the themes and quotes below to decide "
+            "which workflows need product fixes, clearer communication, or advisor enablement."
+        )
     if not actions:
         actions = [
             "Triage top recurring failure points and assign owners.",
@@ -228,6 +265,10 @@ async def generate_weekly_pulse(settings: Settings, req: PulseGenerateRequest) -
     # Uses all cleaned reviews (full 200), not the sampled prompt segments
     avg = round(sum(r.rating for r in cleaned) / max(len(cleaned), 1), 2) if cleaned else 0.0
     metrics = PulseMetrics(reviews_considered=len(cleaned), average_rating=avg, lookback_weeks=req.lookback_weeks)
+    if len(cleaned) < 150:
+        degraded = True
+        degraded_reason = (degraded_reason + ";") if degraded_reason else ""
+        degraded_reason += f"low_review_volume:{len(cleaned)}"
 
     pulse = WeeklyPulse(
         pulse_id=f"PULSE-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid4().hex[:8]}",
@@ -262,3 +303,18 @@ async def get_current_pulse(settings: Settings) -> WeeklyPulse | None:
 
 async def get_pulse_history(settings: Settings, limit: int = 20) -> list[WeeklyPulse]:
     return await get_pulse_repository(settings).get_pulse_history(limit=limit)
+
+
+def _parse_json_object(raw: str | None) -> dict:
+    if not raw:
+        return {}
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        text = text[start : end + 1]
+    return json.loads(text)

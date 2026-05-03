@@ -31,7 +31,8 @@ def weekly_pulse_prompt(theme_json: str) -> str:
     return (
         "You are generating a Weekly Pulse for a PM dashboard.\n"
         "Given the extracted themes and quotes (JSON), produce JSON with:\n"
-        "narrative (short), recommended_actions (3-6 bullets), themes (pass through), quotes (pass through).\n"
+        "narrative (120-180 words), recommended_actions (3-6 specific bullets), themes (pass through), quotes (pass through).\n"
+        "Recommended actions must be operationally specific and owner-friendly.\n"
         "Do NOT include fee explainer six-bullet tutorial content.\n\n"
         f"THEMES_AND_QUOTES_JSON:\n{theme_json}\n"
     )

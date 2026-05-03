@@ -16,6 +16,7 @@ from app.schemas.pulse import (
     SubscribeResult,
     WeeklyPulse,
 )
+from app.mcp.send_weekly_pulse_email import send_weekly_pulse_email
 from app.services.scheduler_service import send_latest_pulse_to_subscribers
 from app.services.pulse_workflow_service import generate_weekly_pulse, get_current_pulse, get_pulse_history
 
@@ -68,7 +69,31 @@ async def subscribe(body: SubscribeRequest) -> APIEnvelope[SubscribeResult]:
     settings = get_settings()
     repo = get_subscription_repository(settings)
     email, status = await repo.subscribe(str(body.email))
-    return APIEnvelope(success=True, message="subscribed", data=SubscribeResult(email=email, status=status))
+    pulse = await get_current_pulse(settings)
+    delivery_status = "no_pulse"
+    delivery_message = "Subscription saved. Generate a Weekly Pulse to send the first email."
+
+    if pulse:
+        delivery = await send_weekly_pulse_email(pulse=pulse, to_email=email, correlation_id=None)
+        delivery_status = str(delivery.get("status") or "failed")
+        if delivery_status == "sent":
+            delivery_message = "Subscription saved and the current pulse was sent."
+        elif delivery_status == "skipped":
+            delivery_message = "Subscription saved. Email delivery needs workspace mail setup."
+        else:
+            delivery_message = "Subscription saved. The current pulse email could not be delivered."
+
+    return APIEnvelope(
+        success=delivery_status in ("sent", "skipped", "no_pulse"),
+        message="subscribed",
+        data=SubscribeResult(
+            email=email,
+            status=status,
+            pulse_id=pulse.pulse_id if pulse else None,
+            delivery_status=delivery_status,  # type: ignore[arg-type]
+            delivery_message=delivery_message,
+        ),
+    )
 
 
 @router.post("/unsubscribe", response_model=APIEnvelope[SubscribeResult])

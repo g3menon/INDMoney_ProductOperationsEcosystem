@@ -1,42 +1,43 @@
 "use client";
 
-type VoiceState = "idle" | "recording" | "processing";
-
 export function VoiceControls({
-  state,
-  disabled,
+  active,
+  unsupported,
   onToggle,
 }: {
-  state: VoiceState;
-  disabled: boolean;
+  active: boolean;
+  unsupported: boolean;
   onToggle: () => void;
 }) {
-  const label =
-    state === "recording" ? "Recording" : state === "processing" ? "Processing" : "Voice message";
-
   return (
     <button
       type="button"
       className={
-        state === "recording"
-          ? "focus-ring inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700"
-          : "focus-ring inline-flex items-center gap-2 rounded-full border border-groww-border bg-white px-3 py-2 text-xs font-semibold text-groww-muted hover:text-groww-accent"
+        active
+          ? "focus-ring relative flex h-10 w-10 items-center justify-center rounded-full bg-groww-accent text-white shadow-card before:absolute before:inset-[-6px] before:animate-pulse before:rounded-full before:border before:border-groww-accent/30"
+          : "focus-ring flex h-10 w-10 items-center justify-center rounded-full border border-groww-border bg-white text-groww-muted shadow-sm hover:text-groww-accent"
       }
       onClick={onToggle}
-      disabled={disabled || state === "processing"}
-      aria-label={label}
+      disabled={unsupported}
+      aria-label={active ? "Stop listening" : "Start voice input"}
+      title={unsupported ? "Voice input is not supported in this browser" : active ? "Stop listening" : "Start voice input"}
     >
-      <span
-        className={
-          state === "recording"
-            ? "h-2 w-2 animate-pulse rounded-full bg-groww-danger"
-            : state === "processing"
-              ? "h-2 w-2 animate-pulse rounded-full bg-groww-warning"
-              : "h-2 w-2 rounded-full bg-groww-accent"
-        }
-        aria-hidden
-      />
-      {label}
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+        <path
+          d="M12 14.5a3 3 0 0 0 3-3v-5a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M18.5 11.5a6.5 6.5 0 0 1-13 0M12 18v3M9 21h6"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </button>
   );
 }
