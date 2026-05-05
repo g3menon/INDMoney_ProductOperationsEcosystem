@@ -9,15 +9,15 @@ export function ErrorState({
 }) {
   return (
     <div
-      className="rounded-lg border border-red-500/30 bg-red-950/30 p-4 text-sm text-red-100"
+      className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800 shadow-sm"
       role="alert"
     >
       <div className="font-semibold">{title}</div>
-      <p className="mt-2 text-red-100/90">{message}</p>
+      <p className="mt-2 text-red-700">{message}</p>
       {onRetry ? (
         <button
           type="button"
-          className="mt-3 rounded-md bg-white/10 px-3 py-2 text-xs font-medium text-white hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent"
+          className="focus-ring mt-3 rounded-full bg-white px-3 py-2 text-xs font-semibold text-red-700 shadow-sm hover:bg-red-100"
           onClick={onRetry}
         >
           Retry

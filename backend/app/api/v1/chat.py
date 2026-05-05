@@ -6,32 +6,54 @@ Phase 4: ChatMessageResult now carries citations from RAG-grounded answers (Rule
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.main import limiter
 from app.repositories.chat_repository import get_chat_repository
 from app.schemas.chat import ChatMessage, ChatMessageRequest, ChatMessageResult, CitationSource, PromptChip
 from app.schemas.common import APIEnvelope
-from app.services.customer_router_service import generate_customer_response
+from app.services.customer_router_service import generate_customer_response_with_metadata
 from app.services.prompt_service import get_prompt_chips
 
 router = APIRouter(prefix="/chat")
 
 
+async def _parse_chat_message_payload(request: Request) -> ChatMessageRequest:
+    """Parse JSON body explicitly so slowapi + postponed annotations keep a valid request model."""
+
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail=[{"type": "json_invalid", "loc": ["body"], "msg": "Invalid JSON"}])
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"type": "model_attributes_type", "loc": ["body"], "msg": "Input should be a valid dictionary"}],
+        )
+    try:
+        return ChatMessageRequest.model_validate(raw)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
 @router.post("/message", response_model=APIEnvelope[ChatMessageResult])
 @limiter.limit("15/minute")
-async def post_message(request: Request, body: ChatMessageRequest) -> APIEnvelope[ChatMessageResult]:
+async def post_message(
+    request: Request,
+    payload: ChatMessageRequest = Depends(_parse_chat_message_payload),
+) -> APIEnvelope[ChatMessageResult]:
     settings = get_settings()
     repo = get_chat_repository(settings)
 
-    session_id = body.session_id or await repo.create_session()
-    await repo.add_message(session_id=session_id, role="user", content=body.message)
+    session_id = payload.session_id or await repo.create_session()
+    await repo.add_message(session_id=session_id, role="user", content=payload.message)
 
-    assistant_text, citations = await generate_customer_response(
+    assistant_text, citations, metadata = await generate_customer_response_with_metadata(
         settings=settings,
         session_id=session_id,
-        user_message=body.message,
+        user_message=payload.message,
     )
     assistant_msg = await repo.add_message(session_id=session_id, role="assistant", content=assistant_text)
 
@@ -48,6 +70,7 @@ async def post_message(request: Request, body: ChatMessageRequest) -> APIEnvelop
             session_id=session_id,
             assistant_message=assistant_text,
             citations=normalized_citations,
+            metadata=metadata,
             created_at=assistant_msg.created_at,
         ),
     )

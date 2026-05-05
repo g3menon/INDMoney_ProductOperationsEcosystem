@@ -3,9 +3,93 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  font-family:
+    "Inter", "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: #f8f7fc;
+  scroll-behavior: smooth;
 }
 
 body {
-  @apply bg-groww-ink text-slate-100 antialiased;
+  min-height: 100%;
+  @apply bg-groww-bg text-groww-text antialiased;
+  font-feature-settings:
+    "cv02",
+    "cv03",
+    "cv04",
+    "cv11";
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background:
+    radial-gradient(circle at 18% 8%, rgba(249, 168, 212, 0.28), transparent 28rem),
+    radial-gradient(circle at 76% 12%, rgba(96, 165, 250, 0.22), transparent 30rem),
+    radial-gradient(circle at 52% 82%, rgba(124, 58, 237, 0.12), transparent 26rem),
+    #f8f7fc;
+}
+
+::selection {
+  background: rgba(124, 58, 237, 0.18);
+  color: #1f2430;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #dedbea;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #c9c4dc;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+@layer components {
+  .soft-card {
+    @apply rounded-2xl border border-groww-border bg-groww-surface shadow-card;
+  }
+
+  .soft-panel {
+    @apply rounded-3xl border border-white/70 bg-white/85 shadow-soft backdrop-blur;
+  }
+
+  .gradient-halo {
+    background:
+      radial-gradient(circle at 24% 8%, rgba(249, 168, 212, 0.28), transparent 18rem),
+      radial-gradient(circle at 78% 10%, rgba(96, 165, 250, 0.22), transparent 20rem),
+      radial-gradient(circle at 50% 92%, rgba(124, 58, 237, 0.1), transparent 22rem),
+      rgba(255, 255, 255, 0.78);
+  }
+
+  .pill-chip {
+    @apply inline-flex items-center gap-2 rounded-full border border-groww-border bg-white px-3 py-1.5 text-xs font-semibold text-groww-muted shadow-sm transition hover:border-groww-accent/40 hover:text-groww-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent/30 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .section-divider {
+    @apply border-t border-groww-border;
+  }
+
+  .focus-ring {
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent/30 focus-visible:ring-offset-2 focus-visible:ring-offset-groww-bg;
+  }
 }

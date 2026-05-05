@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.main import limiter
@@ -35,6 +36,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/booking")
 
 
+async def _parse_booking_create_payload(request: Request) -> BookingCreateRequest:
+    """Parse JSON body explicitly (slowapi + postponed annotations break plain body models)."""
+
+    try:
+        raw = await request.json()
+    except Exception:
+        raise HTTPException(status_code=422, detail=[{"type": "json_invalid", "loc": ["body"], "msg": "Invalid JSON"}])
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"type": "model_attributes_type", "loc": ["body"], "msg": "Input should be a valid dictionary"}],
+        )
+    try:
+        return BookingCreateRequest.model_validate(raw)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+
+
 # ────────────────────────────────────────────────────────────────────
 # POST /booking/create
 # ────────────────────────────────────────────────────────────────────
@@ -44,8 +63,8 @@ router = APIRouter(prefix="/booking")
 @limiter.limit("10/minute")
 async def create_booking_route(
     request: Request,
-    body: BookingCreateRequest,
     response: Response,
+    body: BookingCreateRequest = Depends(_parse_booking_create_payload),
 ) -> APIEnvelope[BookingDetail]:
     """Create a new booking from the customer flow.
 

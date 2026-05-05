@@ -21,6 +21,101 @@ type WeeklyPulse = {
   degraded_reason?: string | null;
 };
 
+type SubscribeResult = {
+  email: string;
+  status: "subscribed" | "unsubscribed";
+  updated_at: string;
+  pulse_id?: string | null;
+  delivery_status?: "sent" | "skipped" | "failed" | "no_pulse" | null;
+  delivery_message?: string | null;
+};
+
+const OWNER_POOL = ["PM", "Ops", "Support", "Advisor Enablement"];
+
+function themeCode(theme: string, index: number) {
+  const lower = theme.toLowerCase();
+  const prefix = lower.includes("trust")
+    ? "TRUST"
+    : lower.includes("performance") || lower.includes("slow")
+      ? "PERF"
+      : lower.includes("advisor") || lower.includes("booking")
+        ? "ADV"
+        : lower.includes("fee") || lower.includes("charge")
+          ? "FEE"
+          : "UX";
+  return `${prefix}-${String(index + 1).padStart(2, "0")}`;
+}
+
+function actionTitle(action: string) {
+  const trimmed = action.replace(/\.$/, "");
+  if (trimmed.length <= 72) return trimmed;
+  return `${trimmed.slice(0, 69)}...`;
+}
+
+function actionBody(action: string) {
+  if (action.length > 72) return action;
+  return `Turn this signal into a scoped product or operations follow-up, with a clear owner and measurable next step.`;
+}
+
+function actionWhy(action: string) {
+  const lower = action.toLowerCase();
+  if (lower.includes("instrument") || lower.includes("metric")) return "Better instrumentation helps PMs separate isolated feedback from repeatable workflow friction.";
+  if (lower.includes("support") || lower.includes("status")) return "Clearer customer communication can reduce avoidable support and advisor escalations.";
+  if (lower.includes("triage") || lower.includes("owner")) return "A named owner prevents recurring review themes from staying as dashboard-only observations.";
+  return "This converts customer language into a concrete follow-up that can be tracked by Product Operations.";
+}
+
+function readableDegradedReason(reason?: string | null) {
+  if (!reason) return "The pulse is partial because one or more analysis inputs were unavailable.";
+  if (reason.includes("low_review_volume")) {
+    const count = reason.match(/low_review_volume:(\d+)/)?.[1];
+    return `The pulse is partial because ${count ?? "fewer than 150"} reviews were available. Target volume is 150-200 reviews.`;
+  }
+  if (reason.includes("groq")) return "Theme clustering used the deterministic fallback because the theme provider was unavailable.";
+  if (reason.includes("gemini")) return "Narrative synthesis used a deterministic summary because the writing provider was unavailable.";
+  return "The pulse is partial, but the available review signals are still shown.";
+}
+
+function ProductIcon({ name }: { name: "reviews" | "rating" | "theme" | "advisor" }) {
+  const paths = {
+    reviews: "M5 5h14M5 10h14M5 15h9M4 3h16v18H4z",
+    rating: "m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1L12 16.8 6.6 19.6l1-6.1-4.4-4.3 6.1-.9z",
+    theme: "M4 12h4l2-7 4 14 2-7h4M5 20h14",
+    advisor: "M8 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0Zm-3 14a7 7 0 0 1 14 0M18 14l2 2 3-4",
+  };
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d={paths[name]} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function inferBookingReasons(pulse: WeeklyPulse | null) {
+  const themes = pulse?.themes ?? [];
+  const total = Math.max(
+    themes.reduce((sum, theme) => sum + Math.max(theme.count, 0), 0),
+    1,
+  );
+  const source = themes.length
+    ? themes.slice(0, 4)
+    : [
+        { theme: "Fee clarity", summary: "Customers need reassurance before acting on fund costs.", count: 8 },
+        { theme: "Fund comparison", summary: "Customers want advisor help choosing between similar options.", count: 6 },
+        { theme: "Trust and next steps", summary: "Users need confidence on the right action after reading insights.", count: 5 },
+      ];
+
+  return source.map((theme) => ({
+    category: theme.theme,
+    count: theme.count,
+    percent: Math.max(12, Math.round((theme.count / total) * 100)),
+    explanation: theme.summary,
+  }));
+}
+
+function Stars({ rating }: { rating: number }) {
+  return <span className="text-xs font-semibold text-amber-500">{"*".repeat(Math.max(1, Math.min(5, rating)))}</span>;
+}
+
 export function ProductTab() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,20 +124,20 @@ export function ProductTab() {
   const [email, setEmail] = useState("");
   const [actionBusy, setActionBusy] = useState<"none" | "subscribe" | "unsubscribe" | "generate">("none");
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [actionTone, setActionTone] = useState<"success" | "warning" | "danger" | "neutral">("neutral");
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setActionMsg(null);
     try {
-      const [c, h] = await Promise.all([
+      const [currentPulse, pulseHistory] = await Promise.all([
         fetchJson<WeeklyPulse | null>("/api/v1/pulse/current"),
         fetchJson<WeeklyPulse[]>("/api/v1/pulse/history?limit=10"),
       ]);
-      setCurrent(c);
-      setHistory(h);
+      setCurrent(currentPulse);
+      setHistory(pulseHistory);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
+      setError(e instanceof Error ? e.message : "Weekly Pulse could not be loaded.");
       setCurrent(null);
       setHistory(null);
     } finally {
@@ -54,21 +149,28 @@ export function ProductTab() {
     void load();
   }, [load]);
 
-  const idealCurrent = current?.data ?? null;
+  const pulse = current?.data ?? null;
   const historyRows = history?.data ?? [];
+  const bookingReasons = useMemo(() => inferBookingReasons(pulse), [pulse]);
+  const maxThemeCount = Math.max(...(pulse?.themes ?? []).map((theme) => theme.count), 1);
+  const topTheme = pulse?.themes?.[0]?.theme ?? "Awaiting signal";
+  const inferredDemand = bookingReasons.reduce((sum, item) => sum + item.count, 0);
 
-  const generateFixture = useCallback(async () => {
-    setActionBusy("generate");
-    setActionMsg(null);
+  const generateSample = useCallback(async () => {
+      setActionBusy("generate");
+      setActionMsg(null);
+      setActionTone("neutral");
     try {
       await fetchJson<WeeklyPulse>("/api/v1/pulse/generate", {
         method: "POST",
         body: JSON.stringify({ use_fixture: true, lookback_weeks: 8 }),
       });
-      setActionMsg("Generated a new pulse (fixture run).");
+      setActionMsg("Sample pulse generated for local review.");
+      setActionTone("success");
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Failed to generate pulse");
+      setActionMsg(e instanceof Error ? e.message : "Sample pulse could not be generated.");
+      setActionTone("danger");
     } finally {
       setActionBusy("none");
     }
@@ -77,15 +179,36 @@ export function ProductTab() {
   const subscribe = useCallback(async () => {
     setActionBusy("subscribe");
     setActionMsg(null);
+    setActionTone("neutral");
     try {
-      await fetchJson<{ email: string; status: string; updated_at: string }>("/api/v1/pulse/subscribe", {
+      const trimmedEmail = email.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+        setActionMsg("Enter a valid email address.");
+        setActionTone("danger");
+        return;
+      }
+      const response = await fetchJson<SubscribeResult>("/api/v1/pulse/subscribe", {
         method: "POST",
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: trimmedEmail }),
       });
-      setActionMsg("Subscribed successfully.");
+      const delivery = response.data?.delivery_status;
+      if (delivery === "sent") {
+        setActionMsg("You're subscribed. The current pulse was sent, and future pulses arrive every Monday at 10:00 AM IST.");
+        setActionTone("success");
+      } else if (delivery === "skipped") {
+        setActionMsg(response.data?.delivery_message ?? "You're subscribed. Email delivery needs workspace mail setup.");
+        setActionTone("warning");
+      } else if (delivery === "no_pulse") {
+        setActionMsg("You're subscribed. Generate a pulse to send the first email, then future pulses arrive every Monday at 10:00 AM IST.");
+        setActionTone("warning");
+      } else {
+        setActionMsg(response.data?.delivery_message ?? "Subscription saved, but the current pulse email could not be delivered.");
+        setActionTone("danger");
+      }
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Subscription failed");
+      setActionMsg(e instanceof Error ? e.message : "Subscription could not be saved.");
+      setActionTone("danger");
     } finally {
       setActionBusy("none");
     }
@@ -94,15 +217,18 @@ export function ProductTab() {
   const unsubscribe = useCallback(async () => {
     setActionBusy("unsubscribe");
     setActionMsg(null);
+    setActionTone("neutral");
     try {
       await fetchJson<{ email: string; status: string; updated_at: string }>("/api/v1/pulse/unsubscribe", {
         method: "POST",
         body: JSON.stringify({ email }),
       });
-      setActionMsg("Unsubscribed successfully.");
+      setActionMsg("Subscription paused for this email.");
+      setActionTone("success");
       await load();
     } catch (e) {
-      setActionMsg(e instanceof Error ? e.message : "Unsubscribe failed");
+      setActionMsg(e instanceof Error ? e.message : "Subscription could not be updated.");
+      setActionTone("danger");
     } finally {
       setActionBusy("none");
     }
@@ -113,167 +239,334 @@ export function ProductTab() {
   const statusTone = useMemo(() => {
     if (loading) return "neutral" as const;
     if (error) return "danger" as const;
-    if (!idealCurrent) return "warning" as const;
-    if (idealCurrent.degraded) return "warning" as const;
+    if (!pulse) return "warning" as const;
+    if (pulse.degraded) return "warning" as const;
     return "success" as const;
-  }, [error, idealCurrent, loading]);
+  }, [error, pulse, loading]);
 
-  if (loading) return <LoadingState label="Loading pulse data…" />;
-  if (error) return <ErrorState title="Pulse API error" message={error} onRetry={() => void load()} />;
+  if (loading) return <LoadingState label="Loading Weekly Pulse" />;
+  if (error) return <ErrorState title="Weekly Pulse needs attention" message={error} onRetry={() => void load()} />;
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-lg border border-groww-border bg-groww-panel p-4">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <div className="space-y-5">
+      <section className="gradient-halo rounded-[2rem] border border-white/80 p-6 shadow-soft">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-white">Weekly Pulse</h2>
-            <p className="mt-1 text-sm text-slate-400">Current pulse + history, fully backend-driven (Phase 2).</p>
+            <div className="flex flex-wrap gap-2">
+              <InlineStatus tone={statusTone} label={pulse ? "Latest pulse ready" : "No pulse yet"} />
+              <span className="pill-chip">Every Monday - 10:00 AM IST</span>
+            </div>
+            <h2 className="mt-5 text-4xl font-semibold tracking-tight text-groww-text">Weekly Pulse</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-groww-muted">
+              Insights from customer questions, reviews, and advisor demand.
+            </p>
+            {pulse ? (
+              <p className="mt-3 text-xs font-semibold text-groww-faint">
+                Pulse {pulse.pulse_id} - refreshed {formatShortIso(pulse.created_at)}
+              </p>
+            ) : null}
           </div>
-          <div className="flex items-center gap-3">
-            <InlineStatus
-              tone={statusTone}
-              label={
-                idealCurrent
-                  ? `Current pulse: ${idealCurrent.pulse_id} · ${formatShortIso(idealCurrent.created_at)}`
-                  : "No pulse yet"
-              }
-            />
-            <button
-              type="button"
-              className="rounded-md bg-groww-accent px-3 py-2 text-xs font-semibold text-groww-ink hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent disabled:opacity-50"
-              onClick={() => void generateFixture()}
-              disabled={actionBusy !== "none"}
-            >
-              {actionBusy === "generate" ? "Generating…" : "Generate (fixture)"}
-            </button>
+          <div className="rounded-2xl border border-groww-border bg-white/85 p-4 shadow-card">
+            <p className="text-xs font-semibold text-groww-faint">Next scheduled send</p>
+            <p className="mt-1 text-lg font-semibold text-groww-text">Monday, 10:00 AM IST</p>
+            <p className="mt-1 text-xs text-groww-muted">Subscribers receive the same pulse shown here.</p>
           </div>
         </div>
 
-        {actionMsg ? <p className="mt-3 text-sm text-slate-200">{actionMsg}</p> : null}
+        {pulse?.degraded ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            {pulse.metrics.reviews_considered < 150
+              ? `Analysis is in degraded mode. Only ${pulse.metrics.reviews_considered} reviews were available in this run.`
+              : "Analysis is in degraded mode. The pulse uses the available review set with fallback analysis where needed."}
+            <span className="block pt-1 text-amber-700">{readableDegradedReason(pulse.degraded_reason)}</span>
+          </div>
+        ) : null}
+      </section>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <div className="rounded-md border border-groww-border/70 bg-groww-ink/40 p-3">
-            <div className="text-xs font-semibold text-slate-300">Reviews considered</div>
-            <div className="mt-1 text-xl font-semibold text-white">{idealCurrent?.metrics.reviews_considered ?? "—"}</div>
-          </div>
-          <div className="rounded-md border border-groww-border/70 bg-groww-ink/40 p-3">
-            <div className="text-xs font-semibold text-slate-300">Average rating</div>
-            <div className="mt-1 text-xl font-semibold text-white">
-              {idealCurrent ? idealCurrent.metrics.average_rating.toFixed(2) : "—"}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {[
+          { label: "Reviews analyzed", value: pulse?.metrics.reviews_considered ?? 0, detail: "Cleaned review inputs", accent: false, icon: "reviews" as const },
+          { label: "Average rating", value: pulse ? pulse.metrics.average_rating.toFixed(2) : "0.00", detail: "Across reviewed inputs", accent: false, icon: "rating" as const },
+          { label: "Top issue theme", value: topTheme, detail: "Highest mention cluster", accent: true, icon: "theme" as const },
+          { label: "Advisor booking intent", value: inferredDemand, detail: "Inferred from current themes", accent: false, icon: "advisor" as const },
+        ].map((card) => (
+          <div
+            key={card.label}
+            className={
+              card.accent
+                ? "rounded-2xl border border-violet-100 bg-gradient-to-br from-groww-accentSoft to-white p-5 shadow-card"
+                : "soft-card p-5"
+            }
+          >
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white text-groww-accent shadow-sm">
+              <ProductIcon name={card.icon} />
             </div>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">{card.label}</p>
+            <p className="mt-2 line-clamp-2 text-2xl font-semibold tracking-tight text-groww-text">{card.value}</p>
+            <p className="mt-1 text-sm text-groww-muted">{card.detail}</p>
           </div>
-          <div className="rounded-md border border-groww-border/70 bg-groww-ink/40 p-3">
-            <div className="text-xs font-semibold text-slate-300">Lookback window</div>
-            <div className="mt-1 text-xl font-semibold text-white">
-              {idealCurrent ? `${idealCurrent.metrics.lookback_weeks}w` : "—"}
-            </div>
+        ))}
+      </section>
+
+      <section className="soft-card p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold text-groww-text">This week in summary</h3>
+            <p className="mt-1 text-sm text-groww-muted">Executive narrative for PM and operations review.</p>
           </div>
         </div>
-
-        {idealCurrent ? (
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-lg border border-groww-border bg-groww-ink/30 p-4">
-              <h3 className="text-sm font-semibold text-white">Themes</h3>
-              <div className="mt-3 space-y-3">
-                {idealCurrent.themes.map((t) => (
-                  <div key={t.theme} className="rounded-md border border-groww-border/60 bg-groww-panel/40 p-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-slate-100">{t.theme}</div>
-                      <div className="text-xs text-slate-400">{t.count} mentions</div>
-                    </div>
-                    <p className="mt-2 text-sm text-slate-400">{t.summary}</p>
-                  </div>
-                ))}
+        <div className="mt-4 rounded-2xl bg-groww-surfaceSoft p-5 text-base leading-8 text-groww-text">
+          <p>
+            {pulse?.narrative ??
+              "No pulse has been generated yet. Once review ingestion and pulse generation complete, this section will summarize the main customer themes and operational opportunities."}
+          </p>
+          {pulse ? (
+            <div className="mt-5 grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">Primary signal</p>
+                <p className="mt-2 text-sm font-semibold text-groww-text">{topTheme}</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">Evidence</p>
+                <p className="mt-2 text-sm font-semibold text-groww-text">{pulse.quotes.length} customer quotes</p>
+              </div>
+              <div className="rounded-xl bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-groww-faint">PM focus</p>
+                <p className="mt-2 text-sm font-semibold text-groww-text">Reduce repeat advisor escalations</p>
               </div>
             </div>
-            <div className="rounded-lg border border-groww-border bg-groww-ink/30 p-4">
-              <h3 className="text-sm font-semibold text-white">Recommended actions</h3>
-              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-200">
-                {idealCurrent.recommended_actions.map((a) => (
-                  <li key={a}>{a}</li>
-                ))}
-              </ul>
-              {idealCurrent.degraded ? (
-                <p className="mt-4 text-xs text-amber-200">
-                  Degraded mode: {idealCurrent.degraded_reason ?? "LLM keys missing or provider unavailable."}
-                </p>
-              ) : null}
+          ) : null}
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.9fr]">
+        <div className="soft-card p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-groww-text">Pulse themes</h3>
+              <p className="mt-1 text-sm text-groww-muted">Issue clusters with PM-ready context and intensity.</p>
             </div>
           </div>
-        ) : (
-          <p className="mt-4 text-sm text-slate-400">
-            No pulse exists yet. Generate a fixture pulse to validate the full Phase 2 path end-to-end.
-          </p>
-        )}
-      </div>
-
-      <div className="rounded-lg border border-groww-border bg-groww-panel p-4">
-        <h3 className="text-sm font-semibold text-white">Subscription</h3>
-        <p className="mt-1 text-sm text-slate-400">Subscribe/unsubscribe for weekly pulse emails (sending is Phase 7).</p>
-        <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-center">
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="pm@example.com"
-            className="w-full rounded-md border border-groww-border bg-groww-ink/50 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent md:max-w-sm"
-            aria-label="Subscription email"
-          />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              className="rounded-md bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent disabled:opacity-50"
-              onClick={() => void subscribe()}
-              disabled={!canAct}
-            >
-              {actionBusy === "subscribe" ? "Subscribing…" : "Subscribe"}
-            </button>
-            <button
-              type="button"
-              className="rounded-md border border-groww-border bg-groww-ink/40 px-3 py-2 text-xs font-semibold text-slate-200 hover:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-groww-accent disabled:opacity-50"
-              onClick={() => void unsubscribe()}
-              disabled={!canAct}
-            >
-              {actionBusy === "unsubscribe" ? "Unsubscribing…" : "Unsubscribe"}
-            </button>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            {(pulse?.themes ?? []).map((theme, index) => {
+              const intensity = Math.max(8, Math.round((theme.count / maxThemeCount) * 100));
+              return (
+                <article key={theme.theme} className="rounded-2xl border border-groww-border bg-white p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-groww-text">{theme.theme}</p>
+                      <p className="mt-1 font-mono text-xs font-semibold text-groww-accent">{themeCode(theme.theme, index)}</p>
+                    </div>
+                    <span className="rounded-full bg-groww-surfaceSoft px-3 py-1 text-xs font-semibold text-groww-muted">
+                      {theme.count} mentions
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm leading-6 text-groww-muted">{theme.summary}</p>
+                  <p className="mt-3 text-xs font-semibold text-groww-text">Why this matters</p>
+                  <p className="mt-1 text-sm leading-6 text-groww-muted">
+                    This signal can affect trust, completion, or advisor demand if the same question repeats across channels.
+                  </p>
+                  <div className="mt-4 h-2 overflow-hidden rounded-full bg-groww-surfaceSoft">
+                    <div className="h-full rounded-full bg-groww-accent" style={{ width: `${intensity}%` }} />
+                  </div>
+                </article>
+              );
+            })}
+            {!pulse || pulse.themes.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-groww-border bg-white p-6 text-sm text-groww-muted md:col-span-2">
+                Theme cards appear after a pulse is generated from review inputs.
+              </div>
+            ) : null}
           </div>
         </div>
-      </div>
 
-      <div className="rounded-lg border border-groww-border bg-groww-panel p-4">
-        <h3 className="text-sm font-semibold text-white">Pulse history</h3>
-        <p className="mt-1 text-sm text-slate-400">Last 10 pulses stored (newest first).</p>
-        <div className="mt-4 overflow-hidden rounded-lg border border-groww-border">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-groww-ink/40 text-xs text-slate-300">
-              <tr>
-                <th className="px-3 py-2">Pulse</th>
-                <th className="px-3 py-2">Created</th>
-                <th className="px-3 py-2">Reviews</th>
-                <th className="px-3 py-2">Avg rating</th>
-                <th className="px-3 py-2">Mode</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-groww-border">
-              {historyRows.map((p) => (
-                <tr key={p.pulse_id} className="bg-groww-panel/30">
-                  <td className="px-3 py-2 font-medium text-slate-100">{p.pulse_id}</td>
-                  <td className="px-3 py-2 text-slate-300">{formatShortIso(p.created_at)}</td>
-                  <td className="px-3 py-2 text-slate-300">{p.metrics.reviews_considered}</td>
-                  <td className="px-3 py-2 text-slate-300">{p.metrics.average_rating.toFixed(2)}</td>
-                  <td className="px-3 py-2 text-slate-300">{p.degraded ? "Degraded" : "LLM"}</td>
-                </tr>
-              ))}
-              {historyRows.length === 0 ? (
-                <tr className="bg-groww-panel/30">
-                  <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
-                    No pulses yet.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+        <div className="soft-card p-5">
+          <h3 className="text-lg font-semibold text-groww-text">Why customers are booking advisors</h3>
+          <p className="mt-1 text-sm text-groww-muted">Inferred from pulse themes until direct booking analytics are available.</p>
+          <div className="mt-5 space-y-4">
+            {bookingReasons.map((reason) => (
+              <article key={reason.category} className="rounded-2xl border border-groww-border bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-groww-text">{reason.category}</p>
+                    <p className="mt-1 text-xs font-semibold text-groww-faint">Inferred advisor demand</p>
+                  </div>
+                  <span className="text-xl font-semibold text-groww-text">{reason.count}</span>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-groww-surfaceSoft">
+                  <div className="h-full rounded-full bg-groww-accentBlue" style={{ width: `${reason.percent}%` }} />
+                </div>
+                <p className="mt-3 text-sm leading-6 text-groww-muted">{reason.explanation}</p>
+                <p className="mt-2 text-xs font-semibold text-groww-text">Why it matters: customers in this category are likely asking for confidence, not just information.</p>
+              </article>
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-2">
+        <div className="soft-card p-5">
+          <h3 className="text-lg font-semibold text-groww-text">Voice of customer</h3>
+          <p className="mt-1 text-sm text-groww-muted">Representative quotes from the current pulse.</p>
+          <div className="mt-5 grid gap-3">
+            {(pulse?.quotes ?? []).slice(0, 6).map((quote, index) => {
+              const theme = pulse?.themes[index % Math.max(pulse.themes.length, 1)]?.theme;
+              const sentiment = quote.rating <= 2 ? "Friction" : quote.rating >= 4 ? "Positive" : "Mixed";
+              return (
+              <article key={quote.review_id} className="rounded-2xl border border-groww-border bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-xs font-semibold text-groww-accent">VOC-{String(index + 1).padStart(2, "0")}</span>
+                  <Stars rating={quote.rating} />
+                </div>
+                <p className="mt-3 text-sm leading-6 text-groww-text">{quote.quote}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="pill-chip">Review {quote.review_id}</span>
+                  <span className="pill-chip">{sentiment}</span>
+                  {theme ? <span className="pill-chip">{theme}</span> : null}
+                </div>
+              </article>
+              );
+            })}
+            {!pulse || pulse.quotes.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-groww-border bg-white p-6 text-sm text-groww-muted">
+                Customer quotes appear here after the pulse has review context.
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="soft-card p-5">
+          <h3 className="text-lg font-semibold text-groww-text">Recommended actions</h3>
+          <p className="mt-1 text-sm text-groww-muted">Prioritized follow-ups for PM, Ops, Support, and advisor teams.</p>
+          <div className="mt-5 space-y-3">
+            {(pulse?.recommended_actions ?? []).map((action, index) => (
+              <article key={action} className="rounded-2xl border border-groww-border bg-white p-4 shadow-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-groww-accentSoft px-3 py-1 text-xs font-semibold text-groww-accent">
+                    P{Math.min(index + 1, 3)}
+                  </span>
+                  <span className="rounded-full bg-groww-surfaceSoft px-3 py-1 text-xs font-semibold text-groww-muted">
+                    Owner: {OWNER_POOL[index % OWNER_POOL.length]}
+                  </span>
+                </div>
+                <h4 className="mt-3 text-sm font-semibold text-groww-text">{actionTitle(action)}</h4>
+                <p className="mt-2 text-sm leading-6 text-groww-muted">{actionBody(action)}</p>
+                <p className="mt-3 text-xs font-semibold text-groww-text">Why this matters</p>
+                <p className="mt-1 text-sm leading-6 text-groww-muted">{actionWhy(action)}</p>
+                <button
+                  type="button"
+                  className="focus-ring mt-3 rounded-full border border-groww-border bg-white px-3 py-2 text-xs font-semibold text-groww-muted hover:text-groww-accent"
+                >
+                  Add to backlog
+                </button>
+              </article>
+            ))}
+            {!pulse || pulse.recommended_actions.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-groww-border bg-white p-6 text-sm text-groww-muted">
+                Action cards appear after the pulse is generated.
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="soft-card p-5">
+          <h3 className="text-lg font-semibold text-groww-text">Email subscription</h3>
+          <p className="mt-1 text-sm leading-6 text-groww-muted">
+            Subscribe PM stakeholders to the weekly pulse email. Next send: Monday at 10:00 AM IST.
+          </p>
+          <div className="mt-5 space-y-3">
+            <input
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              placeholder="pm@example.com"
+              className="focus-ring w-full rounded-xl border border-groww-border bg-white px-3 py-3 text-sm text-groww-text placeholder:text-groww-faint"
+              aria-label="Subscription email"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="focus-ring rounded-full bg-groww-accent px-4 py-2 text-xs font-semibold text-white shadow-sm disabled:opacity-50"
+                onClick={() => void subscribe()}
+                disabled={!canAct}
+              >
+                {actionBusy === "subscribe" ? "Subscribing..." : "Subscribe"}
+              </button>
+              <button
+                type="button"
+                className="focus-ring rounded-full border border-groww-border bg-white px-4 py-2 text-xs font-semibold text-groww-muted disabled:opacity-50"
+                onClick={() => void unsubscribe()}
+                disabled={!canAct}
+              >
+                {actionBusy === "unsubscribe" ? "Updating..." : "Unsubscribe"}
+              </button>
+            </div>
+            {actionMsg ? (
+              <p
+                className={
+                  actionTone === "success"
+                    ? "rounded-xl bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+                    : actionTone === "danger"
+                      ? "rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700"
+                      : actionTone === "warning"
+                        ? "rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700"
+                        : "rounded-xl bg-groww-surfaceSoft px-3 py-2 text-sm text-groww-muted"
+                }
+              >
+                {actionMsg}
+              </p>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="soft-card p-5">
+          <h3 className="text-lg font-semibold text-groww-text">Pulse history</h3>
+          <p className="mt-1 text-sm text-groww-muted">Recent runs with expandable theme and action previews.</p>
+          <div className="mt-5 divide-y divide-groww-border">
+            {historyRows.map((row) => (
+              <details key={row.pulse_id} className="group py-3">
+                <summary className="flex cursor-pointer list-none flex-col gap-2 rounded-xl px-2 py-2 hover:bg-groww-surfaceSoft sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="font-mono text-xs font-semibold text-groww-accent">{row.pulse_id}</p>
+                    <p className="mt-1 text-sm text-groww-muted">{formatShortIso(row.created_at)}</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="pill-chip">{row.metrics.reviews_considered} reviews</span>
+                    <span className="pill-chip">{row.degraded ? "Degraded" : "Complete"}</span>
+                  </div>
+                </summary>
+                <div className="px-2 pb-3 pt-2 text-sm leading-6 text-groww-muted">
+                  <p>{row.narrative}</p>
+                  <p className="mt-2 font-semibold text-groww-text">Themes: {row.themes.map((theme) => theme.theme).join(", ") || "None"}</p>
+                </div>
+              </details>
+            ))}
+            {historyRows.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-groww-border bg-white p-6 text-center text-sm text-groww-muted">
+                Pulse history appears after the first run is stored.
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      {process.env.NODE_ENV === "development" ? (
+        <details className="soft-card p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-groww-text">Developer tools</summary>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              className="focus-ring rounded-full border border-groww-border bg-white px-4 py-2 text-xs font-semibold text-groww-muted disabled:opacity-50"
+              onClick={() => void generateSample()}
+              disabled={actionBusy !== "none"}
+            >
+              {actionBusy === "generate" ? "Generating..." : "Generate sample pulse"}
+            </button>
+            <p className="text-xs text-groww-muted">Available locally for visual QA and empty-state testing.</p>
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }

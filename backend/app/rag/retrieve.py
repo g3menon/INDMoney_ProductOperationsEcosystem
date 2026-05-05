@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -35,6 +36,15 @@ _DEFAULT_INDEX_PATH = str(
 )
 
 
+@dataclass(frozen=True)
+class RetrievalResult:
+    chunks: list[ScoredChunk]
+    bm25_hits: int = 0
+    embedding_hits: int = 0
+    fused_hits: int = 0
+    retrieval_mode: str = "none"
+
+
 class RAGIndex:
     """In-memory hybrid retrieval index over DocumentChunk objects."""
 
@@ -49,6 +59,22 @@ class RAGIndex:
             "rag_index_loaded",
             extra={"total_chunks": len(chunks), "path": index_path},
         )
+
+    @property
+    def total_chunks(self) -> int:
+        return len(self._chunks)
+
+    @property
+    def chunks_with_embedding(self) -> int:
+        return sum(1 for chunk in self._chunks if chunk.embedding is not None)
+
+    @property
+    def bm25_available(self) -> bool:
+        return bool(getattr(self._bm25, "_chunks", None)) and getattr(self._bm25, "_bm25", None) is not None
+
+    @property
+    def embeddings_available(self) -> bool:
+        return self.chunks_with_embedding > 0
 
     @classmethod
     def load(cls, index_path: str) -> "RAGIndex":
@@ -83,6 +109,22 @@ class RAGIndex:
         use_rerank: bool = False,
     ) -> list[ScoredChunk]:
         """Hybrid BM25 + embedding retrieval → RRF fusion → optional LLM rerank."""
+        result = await self.search_with_metadata(
+            query=query,
+            settings=settings,
+            top_k=top_k,
+            use_rerank=use_rerank,
+        )
+        return result.chunks
+
+    async def search_with_metadata(
+        self,
+        query: str,
+        settings: "Settings",
+        top_k: int = 5,
+        use_rerank: bool = False,
+    ) -> RetrievalResult:
+        """Hybrid BM25 + embedding retrieval with observable retrieval metadata."""
         t0 = time.monotonic()
 
         bm25_results = self._bm25.search(query, top_k=top_k * 2)
@@ -95,7 +137,26 @@ class RAGIndex:
             ranked_lists.append(emb_results)
 
         if not ranked_lists:
-            return []
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            logger.info(
+                "rag_retrieve_done",
+                extra={
+                    "query_len": len(query),
+                    "bm25_hits": len(bm25_results),
+                    "emb_hits": len(emb_results),
+                    "fused": 0,
+                    "returned": 0,
+                    "retrieval_mode": "none",
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
+            return RetrievalResult(
+                chunks=[],
+                bm25_hits=len(bm25_results),
+                embedding_hits=len(emb_results),
+                fused_hits=0,
+                retrieval_mode="none",
+            )
 
         fused = reciprocal_rank_fusion(ranked_lists)[:top_k * 2]
 
@@ -113,10 +174,17 @@ class RAGIndex:
                 "emb_hits": len(emb_results),
                 "fused": len(fused),
                 "returned": len(final),
+                "retrieval_mode": "hybrid" if emb_results else "bm25_only",
                 "elapsed_ms": elapsed_ms,
             },
         )
-        return final
+        return RetrievalResult(
+            chunks=final,
+            bm25_hits=len(bm25_results),
+            embedding_hits=len(emb_results),
+            fused_hits=len(fused),
+            retrieval_mode="hybrid" if emb_results else "bm25_only",
+        )
 
 
 # ---------------------------------------------------------------------------

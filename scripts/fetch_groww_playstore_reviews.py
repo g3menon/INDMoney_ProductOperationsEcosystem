@@ -288,7 +288,7 @@ def collect_reviews(limit: int = 50) -> list[dict[str, Any]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--limit", type=int, default=50)
+    ap.add_argument("--limit", type=int, default=200)
     ap.add_argument("--out", type=str, default="reviews_raw.json")
     args = ap.parse_args()
 

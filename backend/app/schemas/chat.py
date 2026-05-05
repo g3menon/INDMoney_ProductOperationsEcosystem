@@ -7,7 +7,7 @@ Phase 4: citations attached to ChatMessageResult for grounded RAG answers.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +42,7 @@ class ChatMessageResult(BaseModel):
     session_id: str
     assistant_message: str
     citations: list[CitationSource] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=lambda: datetime.utcnow())
 
 

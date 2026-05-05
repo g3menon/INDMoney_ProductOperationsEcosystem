@@ -64,6 +64,16 @@ class AnswerResult:
     citations: list[CitationSource] = field(default_factory=list)
     fallback: bool = False
     fallback_reason: str | None = None
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class LLMTextResult:
+    text: str | None
+    provider_used: str = "none"
+    model_used: str | None = None
+    fallback_used: bool = False
+    fallback_reason: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +120,21 @@ def _safe_fallback(intent: str, query: str, reason: str) -> AnswerResult:
             "Try asking about a specific fund's expense ratio or exit load. "
             f"{_DISCLAIMER}"
         )
-    return AnswerResult(answer=msg, fallback=True, fallback_reason=reason)
+    logger.warning(
+        "fallback_triggered",
+        extra={"fallback": "safe_answer", "reason": reason, "intent": intent},
+    )
+    return AnswerResult(
+        answer=msg,
+        fallback=True,
+        fallback_reason=reason,
+        metadata={
+            "provider_used": "none",
+            "model_used": None,
+            "fallback_used": True,
+            "fallback_reason": reason,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -272,7 +296,16 @@ def compose_structured_answer(
         title=metrics.fund_name,
         last_checked=metrics.last_checked,
     )
-    return AnswerResult(answer=answer, citations=[citation])
+    return AnswerResult(
+        answer=answer,
+        citations=[citation],
+        metadata={
+            "provider_used": "none",
+            "model_used": None,
+            "fallback_used": False,
+            "fallback_reason": None,
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -309,7 +342,17 @@ async def compose_grounded_answer(
         if cached:
             log_cache_hit(intent, cache_key)
             used_chunks = _select_chunks_for_llm(chunks, settings)
-            return AnswerResult(answer=cached, citations=_build_citations(used_chunks))
+            return AnswerResult(
+                answer=cached,
+                citations=_build_citations(used_chunks),
+                metadata={
+                    "provider_used": "none",
+                    "model_used": None,
+                    "fallback_used": False,
+                    "fallback_reason": None,
+                    "rag_chunks_sent_to_llm": len(used_chunks),
+                },
+            )
         log_cache_miss(intent)
 
     used_chunks = _select_chunks_for_llm(chunks, settings)
@@ -332,7 +375,8 @@ async def compose_grounded_answer(
         intent=intent,
     )
 
-    raw_answer = await _call_llm_text(prompt=prompt, settings=settings, tier=tier)
+    llm_result = await _call_llm_text(prompt=prompt, settings=settings, tier=tier)
+    raw_answer = llm_result.text
     logger.info(
         "rag_answer_composed",
         extra={"intent": intent, "fallback": raw_answer is None},
@@ -345,7 +389,19 @@ async def compose_grounded_answer(
     if not should_bypass_cache(settings, query):
         # Grounded RAG answers: shorter TTL (Guardrail 1).
         set_cached(cache_key, answer, ttl=1800)
-    return AnswerResult(answer=answer, citations=_build_citations(used_chunks))
+    return AnswerResult(
+        answer=answer,
+        citations=_build_citations(used_chunks),
+        fallback=llm_result.fallback_used,
+        fallback_reason=llm_result.fallback_reason,
+        metadata={
+            "provider_used": llm_result.provider_used,
+            "model_used": llm_result.model_used,
+            "fallback_used": llm_result.fallback_used,
+            "fallback_reason": llm_result.fallback_reason,
+            "rag_chunks_sent_to_llm": len(used_chunks),
+        },
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +462,15 @@ async def compose_hybrid_answer(
 
     if not context_parts:
         # No RAG context — fall back to deterministic structured answer.
-        return compose_structured_answer(query, metrics, intent)
+        logger.warning(
+            "fallback_triggered",
+            extra={"fallback": "structured_answer", "reason": "no_rag_context", "intent": intent},
+        )
+        result = compose_structured_answer(query, metrics, intent)
+        result.fallback = True
+        result.fallback_reason = "no_rag_context"
+        result.metadata.update({"fallback_used": True, "fallback_reason": "no_rag_context"})
+        return result
 
     prompt = hybrid_answer_prompt(
         query=query,
@@ -415,20 +479,41 @@ async def compose_hybrid_answer(
         intent=intent,
     )
 
-    raw_answer = await _call_llm_text(prompt=prompt, settings=settings, tier=tier)
+    llm_result = await _call_llm_text(prompt=prompt, settings=settings, tier=tier)
+    raw_answer = llm_result.text
     logger.info(
         "hybrid_answer_composed",
         extra={"intent": intent, "fallback": raw_answer is None},
     )
 
     if not raw_answer:
-        return compose_structured_answer(query, metrics, intent)
+        logger.warning(
+            "fallback_triggered",
+            extra={"fallback": "structured_answer", "reason": "llm_unavailable", "intent": intent},
+        )
+        result = compose_structured_answer(query, metrics, intent)
+        result.fallback = True
+        result.fallback_reason = "llm_unavailable"
+        result.metadata.update({"fallback_used": True, "fallback_reason": "llm_unavailable"})
+        return result
 
     answer = raw_answer if _DISCLAIMER in raw_answer else f"{raw_answer}\n\n{_DISCLAIMER}"
     if not should_bypass_cache(settings, query):
         set_cached(cache_key, answer, ttl=1800)
 
-    return _hybrid_result_from_cached(answer=answer, metrics=metrics, used_chunks=used_chunks)
+    result = _hybrid_result_from_cached(answer=answer, metrics=metrics, used_chunks=used_chunks)
+    result.fallback = llm_result.fallback_used
+    result.fallback_reason = llm_result.fallback_reason
+    result.metadata.update(
+        {
+            "provider_used": llm_result.provider_used,
+            "model_used": llm_result.model_used,
+            "fallback_used": llm_result.fallback_used,
+            "fallback_reason": llm_result.fallback_reason,
+            "rag_chunks_sent_to_llm": len(used_chunks),
+        }
+    )
+    return result
 
 
 def _approx_tokens(text: str) -> int:
@@ -518,10 +603,20 @@ def _hybrid_result_from_cached(
                     last_checked=sc.chunk.last_checked,
                 )
             )
-    return AnswerResult(answer=answer, citations=citations)
+    return AnswerResult(
+        answer=answer,
+        citations=citations,
+        metadata={
+            "provider_used": "none",
+            "model_used": None,
+            "fallback_used": False,
+            "fallback_reason": None,
+            "rag_chunks_sent_to_llm": len(used_chunks),
+        },
+    )
 
 
-async def _call_llm_text(prompt: str, settings: "Settings", tier: str) -> str | None:
+async def _call_llm_text(prompt: str, settings: "Settings", tier: str) -> LLMTextResult:
     """Tier-based provider/model routing with fallback (Guardrail 4).
 
     Standard tier: Groq primary → Gemini fallback on failure/empty.
@@ -536,15 +631,24 @@ async def _call_llm_text(prompt: str, settings: "Settings", tier: str) -> str | 
 
             client = GroqClient(settings)
             model = settings.llm_standard_model
+            logger.info("llm_call_started", extra={"provider": "groq", "model": model, "tier": tier})
             raw = await asyncio.to_thread(client.generate_text, prompt, model)
             if raw:
-                logger.info("llm_call_groq_success", extra={"tier": tier})
-                return raw.strip()
+                logger.info("llm_call_succeeded", extra={"provider": "groq", "model": model, "tier": tier})
+                return LLMTextResult(text=raw.strip(), provider_used="groq", model_used=model)
             logger.warning("groq_returned_empty", extra={"tier": tier})
+            logger.warning(
+                "fallback_triggered",
+                extra={"fallback": "gemini", "reason": "groq_empty_response", "tier": tier},
+            )
         except Exception as exc:
             logger.warning(
                 "groq_call_failed_falling_back_to_gemini",
                 extra={"error": str(exc)[:120], "tier": tier},
+            )
+            logger.warning(
+                "fallback_triggered",
+                extra={"fallback": "gemini", "reason": "groq_call_failed", "tier": tier},
             )
         # Groq failed or returned empty — fall through to Gemini fallback
 
@@ -554,18 +658,25 @@ async def _call_llm_text(prompt: str, settings: "Settings", tier: str) -> str | 
 
         client = GeminiClient(settings)
         fallback_model = "gemini-1.5-flash" if tier != "heavy" else settings.llm_heavy_model
+        logger.info("llm_call_started", extra={"provider": "gemini", "model": fallback_model, "tier": tier})
         result = await client.generate_text(prompt, model=fallback_model)
         if result:
-            if tier != "heavy":
-                logger.info(
-                    "llm_call_gemini_fallback_used",
-                    extra={"tier": tier, "model": fallback_model},
-                )
-            return result.strip()
+            logger.info("llm_call_succeeded", extra={"provider": "gemini", "model": fallback_model, "tier": tier})
+            return LLMTextResult(
+                text=result.strip(),
+                provider_used="gemini",
+                model_used=fallback_model,
+                fallback_used=tier != "heavy",
+                fallback_reason="groq_unavailable" if tier != "heavy" else None,
+            )
     except Exception as exc:
         logger.warning(
             "llm_call_error",
             extra={"error": str(exc)[:120], "tier": tier},
         )
+        logger.warning(
+            "fallback_triggered",
+            extra={"fallback": "safe_answer", "reason": "llm_call_error", "tier": tier},
+        )
 
-    return None
+    return LLMTextResult(text=None, fallback_used=True, fallback_reason="llm_unavailable")

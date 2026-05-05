@@ -1,5 +1,10 @@
 "use client";
 
+import { useEffect, useRef } from "react";
+
+import { BookingCard, type BookingSummary } from "@/components/customer/BookingCard";
+import { formatShortIso } from "@/lib/formatters";
+
 type CitationSource = {
   source_url: string;
   doc_type: string;
@@ -8,87 +13,104 @@ type CitationSource = {
   relevant_quote?: string | null;
 };
 
-type ChatMessage = {
+export type ChatMessage = {
   id: string;
-  session_id: string;
+  session_id?: string;
   role: "user" | "assistant";
   content: string;
   created_at: string;
   citations?: CitationSource[];
+  booking?: BookingSummary;
 };
 
 interface ChatPanelProps {
   messages: ChatMessage[];
+  isSending?: boolean;
 }
 
+const BOOKING_ID_PATTERN = /\bBK-\d{8}-[A-Z0-9]{4,}\b/i;
+
 function CitationCard({ citation }: { citation: CitationSource }) {
-  const label =
-    citation.doc_type === "fee_explainer"
-      ? "Fee Explainer"
-      : "Fund Page";
+  const label = citation.doc_type === "fee_explainer" ? "Fee explainer" : "Fund page";
 
   return (
     <a
       href={citation.source_url}
       target="_blank"
       rel="noopener noreferrer"
-      className="mt-2 block rounded border border-groww-border/60 bg-groww-ink/20 px-3 py-2 text-xs transition-colors hover:border-groww-border hover:bg-groww-ink/40"
+      className="mt-2 block rounded-xl border border-groww-border bg-white px-3 py-2 text-xs shadow-sm transition hover:border-groww-accent/40 hover:bg-groww-accentSoft/40"
       aria-label={`Source: ${citation.title}`}
     >
       <div className="flex items-center gap-1.5">
-        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-300">
+        <span className="rounded-full bg-groww-surfaceSoft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-groww-muted">
           {label}
         </span>
-        <span className="truncate font-medium text-slate-200">{citation.title}</span>
+        <span className="truncate font-semibold text-groww-text">{citation.title}</span>
       </div>
-      {citation.relevant_quote && (
-        <p className="mt-1 line-clamp-2 text-slate-400">"{citation.relevant_quote}"</p>
-      )}
-      <p className="mt-0.5 text-slate-500">
-        Last checked: {citation.last_checked}
-      </p>
+      {citation.relevant_quote ? <p className="mt-1 line-clamp-2 text-groww-muted">{citation.relevant_quote}</p> : null}
+      <p className="mt-0.5 text-groww-faint">Last checked: {citation.last_checked}</p>
     </a>
   );
 }
 
-export function ChatPanel({ messages }: ChatPanelProps) {
+function inferredBooking(content: string): BookingSummary | null {
+  const match = content.match(BOOKING_ID_PATTERN);
+  return match ? { booking_id: match[0], status: "pending_advisor_approval" } : null;
+}
+
+export function ChatPanel({ messages, isSending = false }: ChatPanelProps) {
+  const endRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length, isSending]);
+
   return (
-    <div className="mt-4 max-h-[32rem] space-y-3 overflow-y-auto pr-2">
-      {messages.length === 0 ? (
-        <p className="text-sm text-slate-400">Send a message to start the chat.</p>
-      ) : (
-        messages.map((m) => (
-          <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-            <div
-              className={
-                m.role === "user"
-                  ? "max-w-[80%] rounded-lg bg-white/10 px-3 py-2 text-sm text-white"
-                  : "max-w-[80%]"
-              }
-            >
-              {m.role === "user" ? (
-                <span>{m.content}</span>
-              ) : (
-                <>
-                  <div className="rounded-lg border border-groww-border/70 bg-groww-ink/30 px-3 py-2 text-sm text-slate-100">
-                    <p className="whitespace-pre-wrap">{m.content}</p>
-                  </div>
-                  {m.citations && m.citations.length > 0 && (
-                    <div className="mt-1 space-y-1" aria-label="Sources">
-                      <p className="px-1 text-[10px] uppercase tracking-wide text-slate-500">
-                        Sources
-                      </p>
-                      {m.citations.map((c) => (
-                        <CitationCard key={c.source_url} citation={c} />
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
+    <div className="max-h-[52vh] min-h-[280px] space-y-4 overflow-y-auto px-1 py-2 pr-2 md:max-h-[58vh]">
+      {messages.map((message) => {
+        const isUser = message.role === "user";
+        const booking = message.booking ?? (!isUser ? inferredBooking(message.content) : null);
+        return (
+          <div key={message.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
+            <div className={isUser ? "max-w-[82%] md:max-w-[72%]" : "max-w-[88%] md:max-w-[76%]"}>
+              <div
+                className={
+                  isUser
+                    ? "rounded-2xl rounded-br-md bg-groww-accentSoft px-4 py-3 text-sm leading-6 text-groww-text"
+                    : "rounded-2xl rounded-bl-md border border-groww-border bg-white px-4 py-3 text-sm leading-6 text-groww-text shadow-sm"
+                }
+              >
+                <p className="whitespace-pre-wrap">{message.content}</p>
+              </div>
+              <p className={isUser ? "mt-1 text-right text-[11px] text-groww-faint" : "mt-1 text-[11px] text-groww-faint"}>
+                {formatShortIso(message.created_at)}
+              </p>
+              {!isUser && booking ? <BookingCard booking={booking} /> : null}
+              {!isUser && message.citations && message.citations.length > 0 ? (
+                <div className="mt-2 space-y-1" aria-label="Sources">
+                  <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-groww-faint">Sources</p>
+                  {message.citations.map((citation) => (
+                    <CitationCard key={citation.source_url} citation={citation} />
+                  ))}
+                </div>
+              ) : null}
             </div>
           </div>
-        ))
-      )}
+        );
+      })}
+
+      {isSending ? (
+        <div className="flex justify-start">
+          <div className="rounded-2xl rounded-bl-md border border-groww-border bg-white px-4 py-3 shadow-sm">
+            <div className="flex items-center gap-1.5" aria-label="Assistant is typing">
+              <span className="h-2 w-2 animate-bounce rounded-full bg-groww-accent/50" />
+              <span className="h-2 w-2 animate-bounce rounded-full bg-groww-accent/50 [animation-delay:120ms]" />
+              <span className="h-2 w-2 animate-bounce rounded-full bg-groww-accent/50 [animation-delay:240ms]" />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div ref={endRef} />
     </div>
   );
 }

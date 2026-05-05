@@ -1,36 +1,34 @@
 "use client";
 
-import { ChatPanel } from "@/components/customer/ChatPanel";
-
-type ChatMessage = {
-  id: string;
-  session_id: string;
-  role: "user" | "assistant";
-  content: string;
-  created_at: string;
-};
+import { ChatPanel, type ChatMessage } from "@/components/customer/ChatPanel";
 
 interface ChatHistoryProps {
   messages: ChatMessage[];
   disabled: boolean;
+  isSending: boolean;
   onNewChat: () => void;
 }
 
-export function ChatHistory({ messages, disabled, onNewChat }: ChatHistoryProps) {
+export function ChatHistory({ messages, disabled, isSending, onNewChat }: ChatHistoryProps) {
+  if (messages.length === 0 && !isSending) return null;
+
   return (
-    <div className="rounded-lg border border-groww-border bg-groww-panel p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white">Chat history</h3>
+    <section className="soft-card p-4 md:p-5">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-groww-text">Conversation</h3>
+          <p className="mt-1 text-xs text-groww-muted">Your assistant thread stays available while this chat is active.</p>
+        </div>
         <button
           type="button"
-          className="rounded-md border border-groww-border bg-groww-ink/20 px-3 py-1 text-xs font-semibold text-slate-200 hover:bg-groww-ink/30 disabled:opacity-50"
+          className="focus-ring rounded-full border border-groww-border bg-white px-3 py-2 text-xs font-semibold text-groww-muted hover:text-groww-accent disabled:opacity-50"
           onClick={onNewChat}
           disabled={disabled}
         >
           New chat
         </button>
       </div>
-      <ChatPanel messages={messages} />
-    </div>
+      <ChatPanel messages={messages} isSending={isSending} />
+    </section>
   );
 }

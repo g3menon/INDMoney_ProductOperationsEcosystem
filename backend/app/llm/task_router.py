@@ -206,12 +206,15 @@ def classify_intent(message: str) -> IntentLabel:
     """
     intent = _classify_intent_inner(message)
     tier = assign_model_tier(intent)
+    model_tier = "heavy" if tier == "heavy" else "standard"
+    provider = "gemini" if tier == "heavy" else ("none" if tier == "light" else "groq")
     logger.info(
         "intent_classified",
         extra={
             "intent": intent,
             "tier": tier,
-            "provider": "gemini" if tier == "heavy" else "groq",
+            "model_tier": model_tier,
+            "provider": provider,
         },
     )
     return intent
