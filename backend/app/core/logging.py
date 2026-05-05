@@ -6,6 +6,7 @@ import logging
 import sys
 from typing import Any
 
+from app.core.context import correlation_id as _cid_var
 from app.core.config import get_settings
 
 
@@ -14,7 +15,7 @@ class CorrelationFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         if not hasattr(record, "correlation_id"):
-            record.correlation_id = "-"  # type: ignore[attr-defined]
+            record.correlation_id = _cid_var.get()  # type: ignore[attr-defined]
         return True
 
 

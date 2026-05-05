@@ -14,7 +14,7 @@ from app.main import limiter
 from app.repositories.chat_repository import get_chat_repository
 from app.schemas.chat import ChatMessage, ChatMessageRequest, ChatMessageResult, CitationSource, PromptChip
 from app.schemas.common import APIEnvelope
-from app.services.customer_router_service import generate_customer_response
+from app.services.customer_router_service import generate_customer_response_with_metadata
 from app.services.prompt_service import get_prompt_chips
 
 router = APIRouter(prefix="/chat")
@@ -50,7 +50,7 @@ async def post_message(
     session_id = payload.session_id or await repo.create_session()
     await repo.add_message(session_id=session_id, role="user", content=payload.message)
 
-    assistant_text, citations = await generate_customer_response(
+    assistant_text, citations, metadata = await generate_customer_response_with_metadata(
         settings=settings,
         session_id=session_id,
         user_message=payload.message,
@@ -70,6 +70,7 @@ async def post_message(
             session_id=session_id,
             assistant_message=assistant_text,
             citations=normalized_citations,
+            metadata=metadata,
             created_at=assistant_msg.created_at,
         ),
     )

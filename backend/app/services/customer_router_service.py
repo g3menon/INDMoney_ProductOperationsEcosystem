@@ -26,7 +26,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from app.llm.task_router import DISALLOWED_RESPONSES, classify_intent
+from app.llm.task_router import DISALLOWED_RESPONSES, assign_model_tier, classify_intent
 from app.rag.answer import (
     AnswerResult,
     compose_grounded_answer,
@@ -108,29 +108,66 @@ async def generate_customer_response(
     user_message: str,
 ) -> tuple[str, list[CitationSource]]:
     """Return (assistant_text, citations) for the given user message."""
+    text, citations, _metadata = await _generate_customer_response(
+        settings=settings,
+        session_id=session_id,
+        user_message=user_message,
+    )
+    return text, citations
+
+
+async def generate_customer_response_with_metadata(
+    settings: "Settings",
+    session_id: str,
+    user_message: str,
+) -> tuple[str, list[CitationSource], dict[str, object]]:
+    """Return assistant text, citations, and observability metadata."""
+    return await _generate_customer_response(
+        settings=settings,
+        session_id=session_id,
+        user_message=user_message,
+    )
+
+
+async def _generate_customer_response(
+    settings: "Settings",
+    session_id: str,
+    user_message: str,
+) -> tuple[str, list[CitationSource], dict[str, object]]:
     t0 = time.monotonic()
     intent = classify_intent(user_message)
     lower = user_message.lower()
+    metadata = _base_metadata(intent=intent)
 
     logger.info(
         "customer_router_intent",
-        extra={"session_id": session_id, "intent": intent, "msg_len": len(user_message)},
+        extra={
+            "session_id": session_id,
+            "intent": intent,
+            "model_tier": metadata["model_tier"],
+            "msg_len": len(user_message),
+        },
     )
 
     # ── 1. Disallowed / out-of-scope ─────────────────────────────────────
     if intent in DISALLOWED_RESPONSES:
-        return DISALLOWED_RESPONSES[intent], []
+        metadata.update({"fallback_used": True, "fallback_reason": intent})
+        logger.warning(
+            "fallback_triggered",
+            extra={"session_id": session_id, "fallback": "policy_response", "reason": intent},
+        )
+        return DISALLOWED_RESPONSES[intent], [], metadata
 
     # ── 2. Booking intent ────────────────────────────────────────────────
     if intent == "booking_intent":
-        return _BOOKING_RESPONSE, []
+        return _BOOKING_RESPONSE, [], metadata
 
     # ── 2.5 Clarify ambiguous metric questions (metric asked, fund missing) ──
     # Example: "What is the expense ratio?" should ask WHICH fund; whereas
     # "What is an expense ratio?" should explain the concept via RAG.
     if intent in ("fee_query",) and any(k in lower for k in ("expense ratio", "exit load", "ter")):
         if " an " not in lower and not any(f in lower for f in ("hdfc", "motilal", "midcap", "flexi", "index", "fund")):
-            return _CLARIFY_FUND, []
+            return _CLARIFY_FUND, [], metadata
 
     # ── 3. direct_metric_query ───────────────────────────────────────────
     if intent == "direct_metric_query":
@@ -143,7 +180,7 @@ async def generate_customer_response(
                 "customer_router_direct_metric_no_match",
                 extra={"session_id": session_id},
             )
-            return _CLARIFY_FUND, []
+            return _CLARIFY_FUND, [], metadata
         from app.llm.response_cache import (
             get_cached,
             log_cache_hit,
@@ -160,14 +197,16 @@ async def generate_customer_response(
                 log_cache_hit(intent, cache_key)
                 # Citations are deterministic for structured answers.
                 result = compose_structured_answer(user_message, metrics, intent)
-                return cached, result.citations
+                metadata = _with_answer_metadata(metadata, result)
+                return cached, result.citations, metadata
             log_cache_miss(intent)
 
         result = compose_structured_answer(user_message, metrics, intent)
         if not should_bypass_cache(settings, user_message):
             set_cached(cache_key, result.answer, ttl=3600)
         _log_done(session_id, intent, result, t0)
-        return result.answer, result.citations
+        metadata = _with_answer_metadata(metadata, result)
+        return result.answer, result.citations, metadata
 
     # ── 4. RAG path ──────────────────────────────────────────────────────
     rag_index = get_rag_index()
@@ -176,13 +215,35 @@ async def generate_customer_response(
             "rag_index_not_loaded_using_phase3_fallback",
             extra={"session_id": session_id},
         )
-        return _phase3_fallback(user_message), []
+        metadata.update({"fallback_used": True, "fallback_reason": "rag_index_missing"})
+        logger.warning(
+            "fallback_triggered",
+            extra={"session_id": session_id, "fallback": "phase3_response", "reason": "rag_index_missing"},
+        )
+        return _phase3_fallback(user_message), [], metadata
 
-    chunks = await rag_index.search(
+    metadata["rag_index_available"] = True
+    retrieval = await rag_index.search_with_metadata(
         query=user_message,
         settings=settings,
         top_k=5,
         use_rerank=False,
+    )
+    chunks = retrieval.chunks
+    metadata.update(
+        {
+            "rag_chunks_retrieved": len(chunks),
+            "retrieval_mode": retrieval.retrieval_mode,
+        }
+    )
+    logger.info(
+        "customer_router_retrieval_completed",
+        extra={
+            "session_id": session_id,
+            "intent": intent,
+            "rag_chunks_retrieved": len(chunks),
+            "retrieval_mode": retrieval.retrieval_mode,
+        },
     )
 
     # ── 5. hybrid_query: try metrics + RAG together ───────────────────────
@@ -197,7 +258,8 @@ async def generate_customer_response(
                 settings=settings,
             )
             _log_done(session_id, intent, result, t0)
-            return result.answer, result.citations
+            metadata = _with_answer_metadata(metadata, result)
+            return result.answer, result.citations, metadata
         # No fund match → fall through to standard RAG answer below.
 
     # ── 6. mf_query / fee_query / unmatched hybrid → grounded RAG ────────
@@ -209,7 +271,39 @@ async def generate_customer_response(
     )
 
     _log_done(session_id, intent, result, t0)
-    return result.answer, result.citations
+    metadata = _with_answer_metadata(metadata, result)
+    return result.answer, result.citations, metadata
+
+
+def _base_metadata(intent: str) -> dict[str, object]:
+    tier = assign_model_tier(intent)  # light routes are deterministic but exposed as standard.
+    return {
+        "intent": intent,
+        "model_tier": "heavy" if tier == "heavy" else "standard",
+        "provider_used": "none",
+        "model_used": None,
+        "fallback_used": False,
+        "fallback_reason": None,
+        "rag_index_available": get_rag_index() is not None,
+        "rag_chunks_retrieved": 0,
+        "rag_chunks_sent_to_llm": 0,
+        "retrieval_mode": "none",
+    }
+
+
+def _with_answer_metadata(base: dict[str, object], result: AnswerResult) -> dict[str, object]:
+    metadata = dict(base)
+    result_metadata = result.metadata or {}
+    metadata.update(
+        {
+            "provider_used": result_metadata.get("provider_used", "none"),
+            "model_used": result_metadata.get("model_used"),
+            "fallback_used": bool(result_metadata.get("fallback_used", result.fallback)),
+            "fallback_reason": result_metadata.get("fallback_reason", result.fallback_reason),
+            "rag_chunks_sent_to_llm": int(result_metadata.get("rag_chunks_sent_to_llm", 0) or 0),
+        }
+    )
+    return metadata
 
 
 def _log_done(
