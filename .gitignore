@@ -19,3 +19,4 @@ scripts/reviews_raw.json
 
 # Phase 4: RAG built index (rebuilt from fixture/scrape via rebuild_index.py)
 backend/app/rag/index/chunks.json
+backend/.venv/
