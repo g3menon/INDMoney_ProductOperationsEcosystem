@@ -145,9 +145,11 @@ def _is_nav_metric_query(user_message: str) -> bool:
 async def _try_live_nav_enrichment(
     metrics: MFFundMetrics,
 ) -> tuple[MFFundMetrics, CitationSource | None]:
-    """Best-effort HTTP-only NAV enrichment for direct NAV lookups."""
-    if metrics.nav is not None:
-        return metrics, None
+    """Best-effort HTTP-only NAV enrichment for direct NAV lookups.
+
+    Always calls AMFI when invoked (NAV-query paths only). Indexed snapshots
+    go stale quickly; a non-null ``metrics.nav`` must not skip live lookup.
+    """
     try:
         from app.integrations.mf_nav_provider import lookup_latest_nav
 
@@ -182,13 +184,23 @@ async def _try_live_nav_enrichment(
 # ---------------------------------------------------------------------------
 
 
+_MF_RESPONSE_SANITIZE_INTENTS = frozenset(
+    {
+        "direct_metric_query",
+        "hybrid_query",
+        "mutual_fund_info_query",
+        "fee_query",
+    }
+)
+
+
 async def generate_customer_response(
     settings: "Settings",
     session_id: str,
     user_message: str,
 ) -> tuple[str, list[CitationSource]]:
     """Return (assistant_text, citations) for the given user message."""
-    text, citations, _metadata = await _generate_customer_response(
+    text, citations, _ = await generate_customer_response_with_metadata(
         settings=settings,
         session_id=session_id,
         user_message=user_message,
@@ -202,11 +214,16 @@ async def generate_customer_response_with_metadata(
     user_message: str,
 ) -> tuple[str, list[CitationSource], dict[str, object]]:
     """Return assistant text, citations, and observability metadata."""
-    return await _generate_customer_response(
+    text, citations, metadata = await _generate_customer_response(
         settings=settings,
         session_id=session_id,
         user_message=user_message,
     )
+    if str(metadata.get("intent", "") or "") in _MF_RESPONSE_SANITIZE_INTENTS:
+        from app.rag.response_sanitize import sanitize_mf_assistant_text
+
+        text = sanitize_mf_assistant_text(text)
+    return text, citations, metadata
 
 
 async def _generate_customer_response(

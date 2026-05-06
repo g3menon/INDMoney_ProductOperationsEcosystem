@@ -118,6 +118,37 @@ async def test_nav_enrichment_uses_http_provider_without_playwright(monkeypatch:
     assert "requires live page data" not in answer
 
 
+@pytest.mark.asyncio
+async def test_nav_enrichment_overrides_stale_indexed_nav(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Indexed mf_metrics.json often carries an old NAV; AMFI should replace it."""
+
+    async def fake_lookup(_fund_name: str) -> MFNavLookupResult:
+        return MFNavLookupResult(
+            scheme_code="119551",
+            scheme_name="HDFC Equity Fund - Direct Plan - Growth",
+            nav=2136.67,
+            nav_date="2026-05-05",
+        )
+
+    monkeypatch.setattr("app.integrations.mf_nav_provider.lookup_latest_nav", fake_lookup)
+    metrics = MFFundMetrics(
+        doc_id="hdfc-flexicap-direct",
+        fund_name="HDFC Flexi Cap Direct Plan Growth",
+        nav=1845.32,
+        nav_date="2025-04-25",
+        source_url="https://groww.in/mutual-funds/hdfc-equity-fund-direct-growth",
+        scraped_at="2026-04-29T00:00:00Z",
+        last_checked="2026-04-29",
+    )
+
+    enriched, citation = await _try_live_nav_enrichment(metrics)
+
+    assert enriched.nav == 2136.67
+    assert enriched.nav_date == "2026-05-05"
+    assert citation is not None
+    assert citation.source_url == AMFI_NAV_URL
+
+
 def test_unavailable_nav_copy_does_not_recommend_playwright() -> None:
     metrics = MFFundMetrics(
         doc_id="motilal-midcap-direct",

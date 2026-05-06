@@ -410,7 +410,7 @@ export function CustomerTab() {
             How can Groww AI help today?
           </h2>
           <p className="mx-auto mt-4 max-w-2xl text-base leading-7 text-groww-muted">
-            Ask about mutual funds, fees, advisor bookings, or booking status.
+            Ask about mutual funds (Motilal & HDFC schemes in our source list), fees, advisor bookings, or booking status.
           </p>
           <div className="mt-7">
             <PromptChips chips={chips} disabled={sending} onSend={(prompt) => void sendMessage(prompt)} />
@@ -422,7 +422,9 @@ export function CustomerTab() {
       <section className="soft-card p-5">
         <div className="flex flex-col gap-1">
           <h3 className="text-lg font-semibold text-groww-text">Explore supported mutual funds</h3>
-          <p className="text-sm text-groww-muted">Tap a fund to ask questions instantly.</p>
+          <p className="text-sm text-groww-muted">
+            Six curated Groww MF pages — same schemes as Deliverables/Resources.md. Tap for a quick overview.
+          </p>
         </div>
         <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
           {SUPPORTED_FUNDS.map((fund) => (

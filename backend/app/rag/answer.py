@@ -33,6 +33,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DISCLAIMER = "This is general information only, not personalised financial advice."
+
+
+def _query_mentions_nav(query: str) -> bool:
+    lq = (query or "").lower()
+    return "nav" in lq or "net asset value" in lq or "current nav" in lq
+
+
 _MAX_CONTEXT_CHARS = 2400
 _MAX_CHUNKS_FOR_ANSWER = 5
 _CONTEXT_TOKEN_BUDGET = 2000
@@ -419,7 +426,8 @@ async def compose_grounded_answer(
     tier = assign_model_tier(intent)  # mf_query/fee_query => standard; hybrid_query => heavy
     cache_key = make_cache_key(intent=intent, query=query, fund_doc_id=None)
 
-    if not should_bypass_cache(settings, query):
+    allow_llm_cache = not _query_mentions_nav(query) and not should_bypass_cache(settings, query)
+    if allow_llm_cache:
         cached = get_cached(cache_key)
         if cached:
             log_cache_hit(intent, cache_key)
@@ -468,7 +476,7 @@ async def compose_grounded_answer(
         return _safe_fallback(intent, query, "llm_unavailable")
 
     answer = raw_answer if _DISCLAIMER in raw_answer else f"{raw_answer}\n\n{_DISCLAIMER}"
-    if not should_bypass_cache(settings, query):
+    if allow_llm_cache:
         # Grounded RAG answers: shorter TTL (Guardrail 1).
         set_cached(cache_key, answer, ttl=1800)
     return AnswerResult(
@@ -519,7 +527,8 @@ async def compose_hybrid_answer(
     tier = assign_model_tier(intent)  # hybrid_query => heavy
     cache_key = make_cache_key(intent=intent, query=query, fund_doc_id=metrics.doc_id)
 
-    if not should_bypass_cache(settings, query):
+    allow_hybrid_cache = not _query_mentions_nav(query) and not should_bypass_cache(settings, query)
+    if allow_hybrid_cache:
         cached = get_cached(cache_key)
         if cached:
             log_cache_hit(intent, cache_key)
@@ -580,7 +589,7 @@ async def compose_hybrid_answer(
         return result
 
     answer = raw_answer if _DISCLAIMER in raw_answer else f"{raw_answer}\n\n{_DISCLAIMER}"
-    if not should_bypass_cache(settings, query):
+    if allow_hybrid_cache:
         set_cached(cache_key, answer, ttl=1800)
 
     result = _hybrid_result_from_cached(answer=answer, metrics=metrics, used_chunks=used_chunks)

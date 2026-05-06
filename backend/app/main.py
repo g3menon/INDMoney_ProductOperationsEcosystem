@@ -26,6 +26,11 @@ _SKIP_SUPABASE_STARTUP = os.getenv("PHASE1_SKIP_SUPABASE_STARTUP_CHECK", "").low
 async def lifespan(_app: FastAPI):
     configure_logging()
     settings = get_settings()
+    if (settings.app_env or "").lower() == "development":
+        from app.llm.response_cache import clear_cache
+
+        clear_cache()
+        logger.info("llm_response_cache_cleared_on_startup", extra={"correlation_id": "-"})
     if _SKIP_SUPABASE_STARTUP:
         logger.warning(
             "startup_supabase_check_skipped",

@@ -12,12 +12,13 @@ export const FALLBACK_PROMPTS: PromptChip[] = [
   {
     id: "fallback-nav",
     label: "Check NAV",
-    prompt: "What is the NAV of HDFC Flexi Cap Fund?",
+    prompt: "What is the NAV of HDFC Flexi Cap Direct Plan Growth?",
   },
   {
     id: "fallback-compare",
-    label: "Compare flexi caps",
-    prompt: "Compare HDFC Flexi Cap and Parag Parikh Flexi Cap",
+    label: "Active vs passive fees",
+    prompt:
+      "Compare expense ratio of Motilal Oswal Midcap Fund Direct Growth and Motilal Oswal Nifty Midcap 150 Index Fund Direct Growth",
   },
   {
     id: "fallback-expense",

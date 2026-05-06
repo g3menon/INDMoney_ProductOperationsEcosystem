@@ -1,8 +1,9 @@
 """
 Phase 4: Rebuild the RAG chunk index and MF metrics index from the MF/fee corpus.
 
-URLs are read from scripts/sources_manifest.json (single source of truth — no
-hardcoded URL lists in this file).
+URLs are read from scripts/sources_manifest.json. Keep mutual fund URLs in
+sync with Deliverables/Resources.md (canonical Groww MF table); manifest
+must not add MF pages absent from Resources.md.
 
 Reads source documents (fixture or scraped), runs structured extraction, chunks
 them, optionally generates Gemini embeddings, and writes:

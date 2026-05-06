@@ -40,12 +40,5 @@
     "title": "HDFC Large Cap Fund Direct Growth",
     "doc_type": "mutual_fund_page",
     "scrape_interval_hours": 24
-  },
-  {
-    "doc_id": "parag-parikh-flexicap-direct",
-    "url": "https://groww.in/mutual-funds/parag-parikh-long-term-value-fund-direct-growth",
-    "title": "Parag Parikh Flexi Cap Fund Direct Growth",
-    "doc_type": "mutual_fund_page",
-    "scrape_interval_hours": 24
   }
 ]

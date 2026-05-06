@@ -1,8 +1,35 @@
 export type SupportedFund = {
+  /** Must match indexed `fund_name` for metrics/RAG lookups (Deliverables/Resources.md). */
   name: string;
   category: string;
+  /** Short avatar label in the horizontal fund cards */
   mark: string;
 };
+
+/**
+ * Canonical MF pages for product chat – same schemes and Groww URLs as
+ * Deliverables/Resources.md § "Mutual fund pages to scrape".
+ */
+export const SUPPORTED_FUNDS: SupportedFund[] = [
+  { name: "Motilal Oswal Midcap Fund Direct Growth", category: "Equity - Mid Cap", mark: "MO" },
+  {
+    name: "Motilal Oswal Flexi Cap Fund Direct Growth",
+    category: "Equity - Flexi Cap",
+    mark: "MF",
+  },
+  {
+    name: "Motilal Oswal Nifty Midcap 150 Index Fund Direct Growth",
+    category: "Index Funds / ETF",
+    mark: "M150",
+  },
+  {
+    name: "HDFC Large and Mid Cap Fund Direct Growth",
+    category: "Equity - Large & Mid Cap",
+    mark: "HM",
+  },
+  { name: "HDFC Flexi Cap Direct Plan Growth", category: "Equity - Flexi Cap", mark: "HF" },
+  { name: "HDFC Large Cap Fund Direct Growth", category: "Equity - Large Cap", mark: "HL" },
+];
 
 export type BookingReason = {
   id: string;
@@ -10,14 +37,6 @@ export type BookingReason = {
   summary: string;
   prompt: string;
 };
-
-export const SUPPORTED_FUNDS: SupportedFund[] = [
-  { name: "HDFC Flexi Cap Fund", category: "Equity - Flexi Cap", mark: "HF" },
-  { name: "Parag Parikh Flexi Cap Fund", category: "Equity - Flexi Cap", mark: "PP" },
-  { name: "Motilal Oswal Midcap Fund", category: "Equity - Mid Cap", mark: "MO" },
-  { name: "HDFC Large Cap Fund", category: "Equity - Large Cap", mark: "HL" },
-  { name: "Nifty 50 Index Fund", category: "Passive - Index", mark: "N50" },
-];
 
 export const BOOKING_REASONS: BookingReason[] = [
   {
@@ -53,8 +72,8 @@ export const BOOKING_REASONS: BookingReason[] = [
 ];
 
 export const CURATED_CUSTOMER_PROMPTS = [
-  "What is the NAV of HDFC Flexi Cap Fund?",
-  "Compare HDFC Flexi Cap and Parag Parikh Flexi Cap",
+  "What is the NAV of HDFC Flexi Cap Direct Plan Growth?",
+  "Compare expense ratio of Motilal Oswal Midcap Fund Direct Growth and Motilal Oswal Nifty Midcap 150 Index Fund Direct Growth",
   "Explain expense ratio in simple terms",
   "What fees do I pay in a mutual fund?",
   "I need help with withdrawals and timelines",
