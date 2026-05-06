@@ -9,12 +9,9 @@ Extraction strategy (four tiers, applied in order, results merged):
   Tier 4 — Regex on normalized text : reliable fallback for fields present as
             narrative prose (expense ratio, exit load, category, risk, minimums).
 
-Fields that require JavaScript rendering (Tier 3 — JS-only) are set to None
-and reported ONCE via ExtractionReport.log_summary(), not scattered as warnings.
-
-Interface contract for Playwright compatibility:
-  Pass Playwright-rendered HTML as the `html` argument — no other code changes
-  are needed.  The same four tiers run; Tiers 2-3 will find more data.
+Fields absent from the indexed HTML snapshot are set to None and reported ONCE
+via ExtractionReport.log_summary(), not scattered as warnings. Playwright is
+reserved for Play Store review collection and is not used here.
 """
 
 from __future__ import annotations
@@ -25,19 +22,31 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.schemas.rag import MFFundMetrics, MFHolding, MFReturns, MFSectorAlloc
+from app.schemas.rag import (
+    MFFundManager,
+    MFFundMetrics,
+    MFHolding,
+    MFInvestmentReturn,
+    MFReturns,
+    MFReturnsAndRankings,
+    MFSectorAlloc,
+)
 
 logger = logging.getLogger(__name__)
 
-# Fields that are almost certainly unavailable without JS rendering.
-_JS_ONLY_FIELDS: frozenset[str] = frozenset(
+# Fields that are often absent from the static/indexed HTML snapshot.
+_SNAPSHOT_OPTIONAL_FIELDS: frozenset[str] = frozenset(
     [
         "nav",
         "nav_date",
         "aum_cr",
         "rating",
         "returns",
+        "investment_returns",
+        "returns_and_rankings",
         "top_holdings",
+        "advanced_ratios",
+        "fund_managers",
         "sector_allocation",
         "asset_allocation",
     ]
@@ -81,34 +90,43 @@ class ExtractionReport:
     fields_extracted: list[str] = field(default_factory=list)
     fields_missing: list[str] = field(default_factory=list)
     tier_used: dict[str, str] = field(default_factory=dict)
-    js_only_missing: list[str] = field(default_factory=list)
+    snapshot_missing: list[str] = field(default_factory=list)
 
     def record(self, fname: str, tier: str) -> None:
         if fname not in self.fields_extracted:
             self.fields_extracted.append(fname)
         self.tier_used[fname] = tier
+        if fname in self.fields_missing:
+            self.fields_missing.remove(fname)
+        if fname in self.snapshot_missing:
+            self.snapshot_missing.remove(fname)
 
-    def missing(self, fname: str, js_only: bool = False) -> None:
+    @property
+    def js_only_missing(self) -> list[str]:
+        """Backward-compatible alias for older scripts/tests."""
+        return self.snapshot_missing
+
+    def missing(self, fname: str, snapshot_optional: bool = False) -> None:
         if fname not in self.fields_missing:
             self.fields_missing.append(fname)
-        if js_only and fname not in self.js_only_missing:
-            self.js_only_missing.append(fname)
+        if snapshot_optional and fname not in self.snapshot_missing:
+            self.snapshot_missing.append(fname)
 
     def log_summary(self) -> None:
-        if self.js_only_missing:
+        if self.snapshot_missing:
             logger.warning(
-                "mf_extractor_js_only_fields_missing",
+                "mf_extractor_snapshot_fields_missing",
                 extra={
                     "doc_id": self.doc_id,
-                    "fields_unavailable": self.js_only_missing,
+                    "fields_unavailable": self.snapshot_missing,
                     "reason": (
-                        "js_rendered_only — rerun with Playwright-rendered HTML "
-                        "to populate these fields"
+                        "not present in indexed HTML snapshot; use approved "
+                        "HTTP sources or fixture refresh for enrichment"
                     ),
                 },
             )
         non_js_missing = [
-            f for f in self.fields_missing if f not in self.js_only_missing
+            f for f in self.fields_missing if f not in self.snapshot_missing
         ]
         if non_js_missing:
             logger.info(
@@ -140,16 +158,16 @@ def extract_from_html(
     """Extract structured MF metrics from a Groww fund page.
 
     Args:
-        html: Raw or Playwright-rendered page HTML.
+        html: Raw page HTML fetched through the HTTP-only source fetcher.
         url: Canonical source URL.
         doc_id: Stable document identifier (e.g. slug[:40]).
         normalized_text: Pre-cleaned text from ``ingest.normalize_document_content``.
             Used as Tier 4 regex fallback.
 
     Returns:
-        Tuple of (MFFundMetrics, ExtractionReport).  Fields unavailable from the
-        current HTML tier are None; ExtractionReport.log_summary() emits one
-        consolidated warning for JS-only fields.
+        Tuple of (MFFundMetrics, ExtractionReport). Fields unavailable from the
+        current HTML snapshot are None; ExtractionReport.log_summary() emits one
+        consolidated warning for snapshot-only gaps.
     """
     from datetime import datetime, timezone
 
@@ -186,7 +204,11 @@ def extract_from_html(
         min_sip_amount=ctx.get("min_sip_amount"),
         min_lumpsum_amount=ctx.get("min_lumpsum_amount"),
         returns=ctx.get("returns"),
+        investment_returns=ctx.get("investment_returns") or [],
         top_holdings=ctx.get("top_holdings") or [],
+        advanced_ratios=ctx.get("advanced_ratios") or {},
+        returns_and_rankings=ctx.get("returns_and_rankings"),
+        fund_managers=ctx.get("fund_managers") or [],
         sector_allocation=ctx.get("sector_allocation") or [],
         asset_allocation=ctx.get("asset_allocation") or {},
         fund_objective=ctx.get("fund_objective"),
@@ -195,11 +217,11 @@ def extract_from_html(
         last_checked=scraped_at[:10],
     )
 
-    # Mark JS-only fields as missing once.
-    for fname in _JS_ONLY_FIELDS:
+    # Mark snapshot-optional fields as missing once.
+    for fname in _SNAPSHOT_OPTIONAL_FIELDS:
         val = getattr(metrics, fname, None)
         if not val:
-            report.missing(fname, js_only=True)
+            report.missing(fname, snapshot_optional=True)
 
     report.log_summary()
     return metrics, report
@@ -540,6 +562,465 @@ def _extract_from_text_regex(
         lines = [ln.strip() for ln in text.split("\n") if len(ln.strip()) > 20]
         if lines:
             _try_set(ctx, report, "fund_name", lines[0][:120], "text_regex")
+
+    _extract_groww_page_sections(text, ctx, report)
+
+
+# ---------------------------------------------------------------------------
+# Groww page section parsing from normalized text
+# ---------------------------------------------------------------------------
+
+_PERIOD_KEYS = {
+    "1": "one_year",
+    "3": "three_year",
+    "5": "five_year",
+    "10": "ten_year",
+    "all": "all_time",
+}
+_RETURN_CALC_RE = re.compile(
+    r"\b(1|3|5|10)\s+years?\s*₹\s*([\d,]+(?:\.\d+)?)\s*₹\s*([\d,]+(?:\.\d+)?)"
+    r"\s*([+-]?\d+(?:\.\d+)?)\s*%",
+    re.I,
+)
+_NAV_LABEL_RE = re.compile(
+    r"NAV:\s*([0-9]{1,2}\s+[A-Za-z]{3}\s+'?[0-9]{2,4})\s*₹\s*([\d,.]+)",
+    re.I,
+)
+_LATEST_NAV_RE = re.compile(
+    r"Latest\s+NAV\s+as\s+of\s+([0-9]{1,2}\s+[A-Za-z]{3}\s+[0-9]{4})\s+is\s+₹\s*([\d,.]+)",
+    re.I,
+)
+_AUM_RE = re.compile(
+    r"(?:Fund\s+size\s*\(AUM\)|Asset\s+Under\s+Management\s*\(AUM\))"
+    r"(?:\s+of)?\s*₹\s*([\d,.]+)\s*Cr",
+    re.I,
+)
+_SIP_RE = re.compile(r"Minimum\s+SIP\s+Investment\s+is\s+set\s+to\s+₹\s*([\d,.]+)", re.I)
+_LUMPSUM_RE = re.compile(r"Minimum\s+Lumpsum\s+Investment\s+is\s+₹\s*([\d,.]+)", re.I)
+_RISK_SENTENCE_RE = re.compile(r"\bis\s+rated\s+([A-Za-z ]+?)\s+risk\b", re.I)
+_RANKINGS_RE = re.compile(
+    r"Fund returns\s*"
+    r"([+-]?\d+(?:\.\d+)?)%\s*([+-]?\d+(?:\.\d+)?)%\s*"
+    r"([+-]?\d+(?:\.\d+)?)%\s*([+-]?\d+(?:\.\d+)?)%\s*"
+    r"Category average \([^)]+\)\s*"
+    r"([+-]?\d+(?:\.\d+)?)%\s*([+-]?\d+(?:\.\d+)?)%\s*"
+    r"([+-]?\d+(?:\.\d+)?)%\s*(--|[+-]?\d+(?:\.\d+)?%)\s*"
+    # Groww sometimes omits whitespace before a trailing "--" (e.g. "9--").
+    r"Rank \([^)]+\)\s*(\d+|--)\s*(\d+|--)\s*(\d+|--)\s*(\d+|--)",
+    re.I,
+)
+_ADVANCED_RATIO_LABELS = {
+    "alpha": "alpha",
+    "beta": "beta",
+    "sharpe ratio": "sharpe",
+    "sharpe": "sharpe",
+    "sortino ratio": "sortino",
+    "sortino": "sortino",
+    "standard deviation": "standard_deviation",
+    "std dev": "standard_deviation",
+}
+_HOLDING_SECTORS = [
+    "Consumer Discretionary",
+    "Consumer Staples",
+    "Services",
+    "Technology",
+    "Communication",
+    "Capital Goods",
+    "Financial",
+    "Automobile",
+    "Construction",
+    "Healthcare",
+    "Energy",
+    "Metals & Mining",
+    "Chemicals",
+    "Insurance",
+    "Materials",
+    "Real Estate",
+    "Textiles",
+    "Utilities",
+]
+_HOLDING_INSTRUMENTS = ["Equity", "Futures", "Debt", "REIT", "InvIT"]
+
+
+def _extract_groww_page_sections(
+    text: str,
+    ctx: dict,
+    report: ExtractionReport,
+) -> None:
+    lines = _clean_lines(text)
+    compact = " ".join(lines)
+
+    _extract_groww_snapshot_metrics(lines, compact, ctx, report)
+    _extract_groww_investment_returns(compact, ctx, report)
+    _extract_groww_returns_and_rankings(compact, ctx, report)
+    _extract_groww_holdings(lines, ctx, report)
+    _extract_groww_advanced_ratios(lines, ctx, report)
+    _extract_groww_fund_managers(lines, ctx, report)
+
+
+def _clean_lines(text: str) -> list[str]:
+    return [ln.strip() for ln in text.splitlines() if ln.strip()]
+
+
+def _extract_groww_snapshot_metrics(
+    lines: list[str],
+    compact: str,
+    ctx: dict,
+    report: ExtractionReport,
+) -> None:
+    if "nav" not in ctx:
+        m = _NAV_LABEL_RE.search(compact) or _LATEST_NAV_RE.search(compact)
+        if m:
+            date_s = _parse_groww_date(m.group(1))
+            nav = _coerce_float(m.group(2).replace(",", ""))
+            if nav and nav > 1:
+                _try_set(ctx, report, "nav", nav, "groww_text")
+                if date_s:
+                    _try_set(ctx, report, "nav_date", date_s, "groww_text")
+
+    if "aum_cr" not in ctx:
+        m = _AUM_RE.search(compact)
+        if m:
+            _try_set(ctx, report, "aum_cr", _coerce_float(m.group(1).replace(",", "")), "groww_text")
+
+    if "expense_ratio_pct" not in ctx:
+        expense = _value_after_label(lines, "expense ratio", _parse_pct)
+        if expense is not None:
+            _try_set(ctx, report, "expense_ratio_pct", expense, "groww_text")
+
+    if "rating" not in ctx:
+        rating = _value_after_label(lines, "rating", lambda s: _coerce_float(s))
+        if rating is not None:
+            _try_set(ctx, report, "rating", str(int(rating)) if float(rating).is_integer() else str(rating), "groww_text")
+
+    if "min_sip_amount" not in ctx:
+        sip = _value_after_label(lines, "min. for sip", _parse_amount)
+        if sip is None:
+            m = _SIP_RE.search(compact)
+            sip = _coerce_float(m.group(1).replace(",", "")) if m else None
+        if sip is not None:
+            _try_set(ctx, report, "min_sip_amount", sip, "groww_text")
+
+    if "min_lumpsum_amount" not in ctx:
+        lump = _value_after_label(lines, "min. for 1st investment", _parse_amount)
+        if lump is None:
+            m = _LUMPSUM_RE.search(compact)
+            lump = _coerce_float(m.group(1).replace(",", "")) if m else None
+        if lump is not None:
+            _try_set(ctx, report, "min_lumpsum_amount", lump, "groww_text")
+
+    if "risk_level" not in ctx:
+        m = _RISK_SENTENCE_RE.search(compact)
+        if m:
+            _try_set(ctx, report, "risk_level", f"{m.group(1).strip()} Risk", "groww_text")
+
+
+def _investment_period_to_returns_field(period: str) -> str | None:
+    """Map Groww return-calculator label to :class:`MFReturns` attribute name."""
+    p = period.strip().lower()
+    if p == "1 year":
+        return "one_year"
+    if p == "3 years":
+        return "three_year"
+    if p == "5 years":
+        return "five_year"
+    if p == "10 years":
+        return "ten_year"
+    return None
+
+
+def _extract_groww_investment_returns(
+    compact: str,
+    ctx: dict,
+    report: ExtractionReport,
+) -> None:
+    rows: list[MFInvestmentReturn] = []
+
+    for m in _RETURN_CALC_RE.finditer(compact):
+        period_num = m.group(1)
+        return_pct = _coerce_float(m.group(4))
+        rows.append(
+            MFInvestmentReturn(
+                period=f"{period_num} year" if period_num == "1" else f"{period_num} years",
+                total_investment=_coerce_float(m.group(2).replace(",", "")),
+                current_value=_coerce_float(m.group(3).replace(",", "")),
+                return_pct=return_pct,
+            )
+        )
+
+    if rows:
+        _try_set(ctx, report, "investment_returns", rows, "groww_text")
+        # Return calculator shows absolute gain %; ``MFReturns`` holds those here.
+        # Annualised table values go into ``returns_and_rankings`` only and may
+        # fill ``MFReturns`` slots that the calculator did not (see merge below).
+        ret = ctx.get("returns") or MFReturns()
+        changed = False
+        for row in rows:
+            field = _investment_period_to_returns_field(row.period)
+            if not field or row.return_pct is None:
+                continue
+            if getattr(ret, field, None) is None:
+                setattr(ret, field, row.return_pct)
+                changed = True
+        if changed and "returns" not in ctx:
+            _try_set(ctx, report, "returns", ret, "groww_text")
+
+
+def _extract_groww_returns_and_rankings(
+    compact: str,
+    ctx: dict,
+    report: ExtractionReport,
+) -> None:
+    if "returns_and_rankings" in ctx:
+        return
+    m = _RANKINGS_RE.search(compact)
+    if not m:
+        return
+    periods = ["three_year", "five_year", "ten_year", "all_time"]
+    fund_returns = {
+        period: value
+        for period, raw in zip(periods, m.group(1, 2, 3, 4))
+        if (value := _coerce_float(raw)) is not None
+    }
+    category_average: dict[str, float] = {}
+    for period, raw in zip(periods, m.group(5, 6, 7, 8)):
+        if raw == "--":
+            continue
+        value = _coerce_float(raw.rstrip("%"))
+        if value is not None:
+            category_average[period] = value
+    rank: dict[str, int] = {}
+    for period, raw in zip(periods, m.group(9, 10, 11, 12)):
+        if raw != "--":
+            rank[period] = int(raw)
+    _try_set(
+        ctx,
+        report,
+        "returns_and_rankings",
+        MFReturnsAndRankings(
+            fund_returns=fund_returns,
+            category_average=category_average,
+            rank=rank,
+        ),
+        "groww_text",
+    )
+
+    returns = ctx.get("returns") or MFReturns()
+    changed = False
+    for period, value in fund_returns.items():
+        if getattr(returns, period, None) is None:
+            setattr(returns, period, value)
+            changed = True
+    if changed and "returns" not in ctx:
+        _try_set(ctx, report, "returns", returns, "groww_text")
+
+
+def _extract_groww_holdings(
+    lines: list[str],
+    ctx: dict,
+    report: ExtractionReport,
+) -> None:
+    if ctx.get("top_holdings"):
+        return
+    start = _find_line_idx(lines, lambda ln: "holdings" in ln.lower())
+    end = _find_line_idx(lines, lambda ln: "minimum investments" in ln.lower(), start + 1 if start >= 0 else 0)
+    if start < 0 or end < 0 or end <= start:
+        return
+    holdings: list[MFHolding] = []
+    for line in lines[start + 1 : end]:
+        parsed = _parse_holding_line(line)
+        if parsed:
+            holdings.append(parsed)
+        if len(holdings) >= 25:
+            break
+    if holdings:
+        _try_set(ctx, report, "top_holdings", holdings, "groww_text")
+
+
+def _parse_holding_line(line: str) -> MFHolding | None:
+    if "%" not in line:
+        return None
+    weight_match = re.search(r"(-?\d+(?:\.\d+)?)\s*%$", line)
+    if not weight_match:
+        return None
+    weight = _coerce_float(weight_match.group(1))
+    head = line[: weight_match.start()].strip()
+    instrument = None
+    for candidate in _HOLDING_INSTRUMENTS:
+        if re.search(rf"\b{re.escape(candidate)}\b$", head, re.I):
+            instrument = candidate
+            head = re.sub(rf"\b{re.escape(candidate)}\b$", "", head, flags=re.I).strip()
+            break
+    sector = None
+    for candidate in sorted(_HOLDING_SECTORS, key=len, reverse=True):
+        match = re.search(rf"{re.escape(candidate)}$", head, re.I)
+        if match:
+            sector = candidate
+            name = head[: match.start()].strip(" -")
+            break
+    else:
+        name = head
+    if not name or len(name) < 3:
+        return None
+    return MFHolding(name=name, sector=sector, instrument=instrument, weight_pct=weight)
+
+
+def _extract_groww_advanced_ratios(
+    lines: list[str],
+    ctx: dict,
+    report: ExtractionReport,
+) -> None:
+    if ctx.get("advanced_ratios"):
+        return
+    ratios: dict[str, float] = {}
+    lower_lines = [ln.lower() for ln in lines]
+    for idx, lower in enumerate(lower_lines):
+        key = _ADVANCED_RATIO_LABELS.get(lower)
+        if not key:
+            continue
+        for candidate in lines[idx + 1 : idx + 3]:
+            value = _coerce_float(candidate.replace("%", ""))
+            if value is not None:
+                ratios[key] = value
+                break
+    if ratios:
+        _try_set(ctx, report, "advanced_ratios", ratios, "groww_text")
+
+
+def _extract_groww_fund_managers(
+    lines: list[str],
+    ctx: dict,
+    report: ExtractionReport,
+) -> None:
+    if ctx.get("fund_managers"):
+        return
+    start = _find_line_idx(lines, lambda ln: "fund management" in ln.lower())
+    if start < 0:
+        return
+    end = _find_line_idx(
+        lines,
+        lambda ln: ln.lower().startswith("about ") or ln.lower() == "fund house",
+        start + 1,
+    )
+    section = lines[start + 1 : end if end > start else min(len(lines), start + 120)]
+    managers: list[MFFundManager] = []
+    idx = 0
+    while idx < len(section):
+        if not _looks_like_manager_name(section[idx]):
+            idx += 1
+            continue
+        name = section[idx]
+        tenure = section[idx + 1] if idx + 1 < len(section) and _looks_like_tenure(section[idx + 1]) else None
+        education = _text_after_marker(section, "Education", idx, stop_markers={"Experience", "Also manages these schemes"})
+        experience = _text_after_marker(section, "Experience", idx, stop_markers={"Also manages these schemes"})
+        also_manages = _list_after_marker(section, "Also manages these schemes", idx, stop_markers={"###", "Education"})
+        managers.append(
+            MFFundManager(
+                name=name,
+                tenure=tenure,
+                education=education,
+                experience=experience,
+                also_manages=also_manages[:12],
+            )
+        )
+        next_card = _find_line_idx(section, lambda ln: ln == "###", idx + 1)
+        idx = next_card + 1 if next_card > idx else idx + 2
+        if len(managers) >= 8:
+            break
+    if managers:
+        _try_set(ctx, report, "fund_managers", managers, "groww_text")
+
+
+def _value_after_label(lines: list[str], label: str, parser) -> Any:
+    label_l = label.lower()
+    for idx, line in enumerate(lines):
+        if line.lower() != label_l:
+            continue
+        for candidate in lines[idx + 1 : idx + 4]:
+            parsed = parser(candidate)
+            if parsed is not None:
+                return parsed
+    return None
+
+
+def _find_line_idx(lines: list[str], predicate, start: int = 0) -> int:
+    for idx in range(max(0, start), len(lines)):
+        if predicate(lines[idx]):
+            return idx
+    return -1
+
+
+def _parse_groww_date(raw: str) -> str | None:
+    from datetime import datetime
+
+    cleaned = raw.replace("'", "").strip()
+    for fmt in ("%d %b %Y", "%d %b %y"):
+        try:
+            return datetime.strptime(cleaned, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _looks_like_manager_name(line: str) -> bool:
+    if len(line) < 5 or len(line) > 70:
+        return False
+    lower = line.lower()
+    if lower in {"view details", "education", "experience", "also manages these schemes"}:
+        return False
+    if "fund" in lower or lower.endswith("growth"):
+        return False
+    if re.fullmatch(r"[A-Z]{1,5}", line):
+        return False
+    return bool(re.fullmatch(r"[A-Z][A-Za-z.' -]+", line))
+
+
+def _looks_like_tenure(line: str) -> bool:
+    return bool(re.search(r"\b(19|20)\d{2}\b", line) and "present" in line.lower())
+
+
+def _text_after_marker(
+    section: list[str],
+    marker: str,
+    start: int,
+    stop_markers: set[str],
+) -> str | None:
+    marker_l = marker.lower()
+    stop_l = {m.lower() for m in stop_markers}
+    marker_idx = _find_line_idx(section, lambda ln: ln.lower() == marker_l, start)
+    if marker_idx < 0:
+        return None
+    parts: list[str] = []
+    for line in section[marker_idx + 1 : marker_idx + 5]:
+        if line.lower() in stop_l or _looks_like_manager_name(line):
+            break
+        if line.lower() != "view details":
+            parts.append(line)
+    text = " ".join(parts).strip()
+    return text or None
+
+
+def _list_after_marker(
+    section: list[str],
+    marker: str,
+    start: int,
+    stop_markers: set[str],
+) -> list[str]:
+    marker_l = marker.lower()
+    stop_l = {m.lower() for m in stop_markers}
+    marker_idx = _find_line_idx(section, lambda ln: ln.lower() == marker_l, start)
+    if marker_idx < 0:
+        return []
+    items: list[str] = []
+    for line in section[marker_idx + 1 : marker_idx + 25]:
+        lower = line.lower()
+        if lower in stop_l or lower in {"education", "experience"}:
+            break
+        if _looks_like_tenure(line) or lower == "view details":
+            continue
+        if "fund" in lower and len(line) > 10:
+            items.append(line)
+    return items
 
 
 # ---------------------------------------------------------------------------

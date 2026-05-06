@@ -142,7 +142,7 @@ def hybrid_answer_prompt(
 # Phase 4 extended — Structured MF metrics formatting
 # ---------------------------------------------------------------------------
 
-_UNAVAILABLE = "not available (requires live page data)"
+_UNAVAILABLE = "not available in the current indexed source data"
 
 
 def format_metrics_block(metrics: "MFFundMetrics") -> str:
@@ -202,6 +202,8 @@ def format_metrics_block(metrics: "MFFundMetrics") -> str:
     if metrics.nav is not None:
         date_str = f" as of {metrics.nav_date}" if metrics.nav_date else ""
         lines.append(f"NAV: \u20b9{metrics.nav:.2f}{date_str}")
+        if metrics.nav_source_url:
+            lines.append(f"NAV Source: {metrics.nav_source_url}")
     if metrics.aum_cr is not None:
         lines.append(f"AUM: \u20b9{metrics.aum_cr:,.0f} crore")
     if metrics.rating:
@@ -223,10 +225,30 @@ def format_metrics_block(metrics: "MFFundMetrics") -> str:
             parts.append(f"3Y: {r.three_year}%")
         if r.five_year is not None:
             parts.append(f"5Y: {r.five_year}%")
+        if r.ten_year is not None:
+            parts.append(f"10Y: {r.ten_year}%")
+        if r.all_time is not None:
+            parts.append(f"All: {r.all_time}%")
         if r.since_inception is not None:
             parts.append(f"SI: {r.since_inception}%")
         if parts:
             lines.append(f"Returns (annualised): {' | '.join(parts)}")
+
+    if metrics.investment_returns:
+        lines.append("Investment Return Calculator:")
+        for row in metrics.investment_returns[:4]:
+            lines.append(
+                f"  • {row.period}: invested {row.total_investment}, "
+                f"value {row.current_value}, return {row.return_pct}%"
+            )
+
+    if metrics.returns_and_rankings:
+        lines.append(
+            "Returns and Rankings: "
+            f"fund={metrics.returns_and_rankings.fund_returns}; "
+            f"category_average={metrics.returns_and_rankings.category_average}; "
+            f"rank={metrics.returns_and_rankings.rank}"
+        )
 
     # Top holdings
     if metrics.top_holdings:
@@ -234,7 +256,18 @@ def format_metrics_block(metrics: "MFFundMetrics") -> str:
         for h in metrics.top_holdings[:5]:
             w = f" {h.weight_pct}%" if h.weight_pct is not None else ""
             sec = f" [{h.sector}]" if h.sector else ""
-            lines.append(f"  \u2022 {h.name}{w}{sec}")
+            inst = f" ({h.instrument})" if h.instrument else ""
+            lines.append(f"  \u2022 {h.name}{w}{sec}{inst}")
+
+    if metrics.advanced_ratios:
+        parts = [f"{k}: {v}" for k, v in metrics.advanced_ratios.items()]
+        lines.append(f"Advanced Ratios: {', '.join(parts)}")
+
+    if metrics.fund_managers:
+        lines.append("Fund Management:")
+        for manager in metrics.fund_managers[:5]:
+            tenure = f" ({manager.tenure})" if manager.tenure else ""
+            lines.append(f"  \u2022 {manager.name}{tenure}")
 
     # Sector allocation
     if metrics.sector_allocation:

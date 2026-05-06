@@ -137,6 +137,46 @@ def _try_metrics_lookup(user_message: str) -> MFFundMetrics | None:
     return store.find_closest_match(user_message)
 
 
+def _is_nav_metric_query(user_message: str) -> bool:
+    lower = user_message.lower()
+    return "nav" in lower or "net asset value" in lower or "current nav" in lower
+
+
+async def _try_live_nav_enrichment(
+    metrics: MFFundMetrics,
+) -> tuple[MFFundMetrics, CitationSource | None]:
+    """Best-effort HTTP-only NAV enrichment for direct NAV lookups."""
+    if metrics.nav is not None:
+        return metrics, None
+    try:
+        from app.integrations.mf_nav_provider import lookup_latest_nav
+
+        nav_result = await lookup_latest_nav(metrics.fund_name)
+    except Exception as exc:
+        logger.warning(
+            "customer_router_nav_enrichment_error",
+            extra={"doc_id": metrics.doc_id, "error": str(exc)[:160]},
+        )
+        return metrics, None
+    if nav_result is None:
+        return metrics, None
+
+    enriched = metrics.model_copy(
+        update={
+            "nav": nav_result.nav,
+            "nav_date": nav_result.nav_date,
+            "nav_source_url": nav_result.source_url,
+        }
+    )
+    citation = CitationSource(
+        source_url=nav_result.source_url,
+        doc_type="mutual_fund_nav",
+        title=f"AMFI latest NAV - {nav_result.scheme_name}",
+        last_checked=nav_result.nav_date,
+    )
+    return enriched, citation
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -229,7 +269,8 @@ async def _generate_customer_response(
     # ── 3. direct_metric_query ───────────────────────────────────────────
     if intent == "direct_metric_query":
         # GUARDRAIL: direct_metric_query never calls Gemini or Groq.
-        # Response is assembled from MFMetricsStore only.
+        # Response is assembled from MFMetricsStore, with HTTP-only AMFI NAV
+        # enrichment for direct NAV lookups when the indexed snapshot is empty.
         metrics = _try_metrics_lookup(user_message)
         if metrics is None:
             # Fund not identifiable → ask for clarification.
@@ -238,6 +279,11 @@ async def _generate_customer_response(
                 extra={"session_id": session_id},
             )
             return _CLARIFY_FUND, [], metadata
+        nav_citation: CitationSource | None = None
+        is_nav_query = _is_nav_metric_query(user_message)
+        if is_nav_query:
+            metrics, nav_citation = await _try_live_nav_enrichment(metrics)
+            metadata["nav_enriched"] = nav_citation is not None
         from app.llm.response_cache import (
             get_cached,
             log_cache_hit,
@@ -248,7 +294,7 @@ async def _generate_customer_response(
         )
 
         cache_key = make_cache_key(intent=intent, query=user_message, fund_doc_id=metrics.doc_id)
-        if not should_bypass_cache(settings, user_message):
+        if not is_nav_query and not should_bypass_cache(settings, user_message):
             cached = get_cached(cache_key)
             if cached:
                 log_cache_hit(intent, cache_key)
@@ -259,7 +305,9 @@ async def _generate_customer_response(
             log_cache_miss(intent)
 
         result = compose_structured_answer(user_message, metrics, intent)
-        if not should_bypass_cache(settings, user_message):
+        if nav_citation and all(c.source_url != nav_citation.source_url for c in result.citations):
+            result.citations.append(nav_citation)
+        if not is_nav_query and not should_bypass_cache(settings, user_message):
             set_cached(cache_key, result.answer, ttl=3600)
         _log_done(session_id, intent, result, t0)
         metadata = _with_answer_metadata(metadata, result)

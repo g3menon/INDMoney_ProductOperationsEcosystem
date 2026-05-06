@@ -51,6 +51,10 @@ _METRIC_FIELD_GROUPS: list[tuple[frozenset[str], str]] = [
     (frozenset(["sector allocation", "sector breakdown"]), "sector_allocation"),
     (frozenset(["asset allocation", "instrument allocation"]), "asset_allocation"),
     (frozenset(["returns", "performance", "cagr", "1 year", "3 year", "5 year"]), "returns"),
+    (frozenset(["10 year", "ten year", "return calculator", "investment return"]), "returns"),
+    (frozenset(["returns and rankings", "ranking", "rank"]), "returns_and_rankings"),
+    (frozenset(["advanced ratios", "sharpe", "sortino", "alpha", "beta", "standard deviation"]), "advanced_ratios"),
+    (frozenset(["fund management", "fund manager", "manager"]), "fund_management"),
     (frozenset(["risk level", "riskometer", "risk"]), "risk_level"),
     (frozenset(["benchmark"]), "benchmark"),
     (frozenset(["rating", "star rating", "crisil", "morningstar"]), "rating"),
@@ -217,6 +221,8 @@ def _render_field_lines(metrics: MFFundMetrics, fields: list[str]) -> list[str]:
         if metrics.nav is not None:
             date_str = f" as of {metrics.nav_date}" if metrics.nav_date else ""
             lines.append(f"NAV: \u20b9{metrics.nav:.2f}{date_str}")
+            if metrics.nav_source_url:
+                lines.append(f"NAV Source: {metrics.nav_source_url}")
         else:
             lines.append(f"NAV: {_UNAVAILABLE}")
 
@@ -260,12 +266,39 @@ def _render_field_lines(metrics: MFFundMetrics, fields: list[str]) -> list[str]:
                 parts.append(f"3Y {r.three_year}%")
             if r.five_year is not None:
                 parts.append(f"5Y {r.five_year}%")
+            if r.ten_year is not None:
+                parts.append(f"10Y {r.ten_year}%")
+            if r.all_time is not None:
+                parts.append(f"All {r.all_time}%")
             if parts:
                 lines.append(f"Returns (annualised): {' | '.join(parts)}")
             else:
                 lines.append(f"Returns: {_UNAVAILABLE}")
         else:
             lines.append(f"Returns: {_UNAVAILABLE}")
+
+        if metrics.investment_returns:
+            lines.append("Investment Return Calculator:")
+            for row in metrics.investment_returns[:4]:
+                total = f"\u20b9{row.total_investment:,.0f}" if row.total_investment is not None else "not available"
+                current = f"\u20b9{row.current_value:,.0f}" if row.current_value is not None else "not available"
+                ret = f"{row.return_pct}%" if row.return_pct is not None else "not available"
+                lines.append(f"  \u2022 {row.period}: {total} became {current} ({ret})")
+
+    if "returns_and_rankings" in fields:
+        rr = metrics.returns_and_rankings
+        if rr:
+            if rr.fund_returns:
+                parts = [f"{_period_label(k)} {v}%" for k, v in rr.fund_returns.items()]
+                lines.append(f"Fund Returns: {' | '.join(parts)}")
+            if rr.category_average:
+                parts = [f"{_period_label(k)} {v}%" for k, v in rr.category_average.items()]
+                lines.append(f"Category Average: {' | '.join(parts)}")
+            if rr.rank:
+                parts = [f"{_period_label(k)} #{v}" for k, v in rr.rank.items()]
+                lines.append(f"Rank: {' | '.join(parts)}")
+        else:
+            lines.append(f"Returns and Rankings: {_UNAVAILABLE}")
 
     if "top_holdings" in fields:
         if metrics.top_holdings:
@@ -292,8 +325,38 @@ def _render_field_lines(metrics: MFFundMetrics, fields: list[str]) -> list[str]:
         else:
             lines.append(f"Asset Allocation: {_UNAVAILABLE}")
 
+    if "advanced_ratios" in fields:
+        if metrics.advanced_ratios:
+            parts = [f"{k.replace('_', ' ').title()}: {v}" for k, v in metrics.advanced_ratios.items()]
+            lines.append(f"Advanced Ratios: {', '.join(parts)}")
+        else:
+            lines.append(f"Advanced Ratios: {_UNAVAILABLE}")
+
+    if "fund_management" in fields:
+        if metrics.fund_managers:
+            lines.append("Fund Management:")
+            for manager in metrics.fund_managers[:5]:
+                tenure = f" ({manager.tenure})" if manager.tenure else ""
+                lines.append(f"  \u2022 {manager.name}{tenure}")
+                if manager.education:
+                    lines.append(f"    Education: {manager.education}")
+                if manager.experience:
+                    lines.append(f"    Experience: {manager.experience}")
+        else:
+            lines.append(f"Fund Management: {_UNAVAILABLE}")
+
     lines.append(f"Source: {metrics.source_url}")
     return lines
+
+
+def _period_label(period: str) -> str:
+    return {
+        "one_year": "1Y",
+        "three_year": "3Y",
+        "five_year": "5Y",
+        "ten_year": "10Y",
+        "all_time": "All",
+    }.get(period, period.replace("_", " "))
 
 
 def compose_structured_answer(

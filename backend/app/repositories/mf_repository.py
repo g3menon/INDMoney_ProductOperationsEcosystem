@@ -160,7 +160,15 @@ class SupabaseMFRepository:
             # mode="json" guards against future schema additions (date/datetime/Decimal/UUID)
             # that postgrest>=2.x can't auto-serialize via raw json.dumps.
             "returns": metrics.returns.model_dump(mode="json") if metrics.returns else None,
+            "investment_returns": [r.model_dump(mode="json") for r in metrics.investment_returns],
+            "returns_and_rankings": (
+                metrics.returns_and_rankings.model_dump(mode="json")
+                if metrics.returns_and_rankings
+                else None
+            ),
             "top_holdings": [h.model_dump(mode="json") for h in metrics.top_holdings],
+            "advanced_ratios": metrics.advanced_ratios,
+            "fund_managers": [m.model_dump(mode="json") for m in metrics.fund_managers],
             "sector_allocation": [s.model_dump(mode="json") for s in metrics.sector_allocation],
             "asset_allocation": metrics.asset_allocation,
             "fund_objective": metrics.fund_objective,

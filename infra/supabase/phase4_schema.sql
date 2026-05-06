@@ -67,7 +67,7 @@ create index if not exists retrieval_logs_created_at_idx on public.retrieval_log
 
 -- Structured mutual-fund metrics extracted from Groww MF pages.
 -- Fields unavailable from static HTML (nav, aum_cr, returns, holdings, etc.)
--- are nullable and populated when Playwright-rendered HTML is available.
+-- are nullable and may be populated by approved HTTP-only enrichment sources.
 create table if not exists public.mf_fund_metrics (
   doc_id text primary key references public.source_documents(doc_id) on delete cascade,
   fund_name text not null,
@@ -89,7 +89,11 @@ create table if not exists public.mf_fund_metrics (
   min_sip_amount numeric(12,2),
   min_lumpsum_amount numeric(12,2),
   returns jsonb,           -- MFReturns serialised as JSON object
+  investment_returns jsonb, -- list[MFInvestmentReturn] serialised as JSON array
+  returns_and_rankings jsonb, -- MFReturnsAndRankings serialised as JSON object
   top_holdings jsonb,      -- list[MFHolding] serialised as JSON array
+  advanced_ratios jsonb,   -- dict[str, float] serialised as JSON object
+  fund_managers jsonb,     -- list[MFFundManager] serialised as JSON array
   sector_allocation jsonb, -- list[MFSectorAlloc] serialised as JSON array
   asset_allocation jsonb,  -- dict[str, float] serialised as JSON object
   fund_objective text,

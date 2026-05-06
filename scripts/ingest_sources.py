@@ -217,6 +217,20 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
                         doc_id=doc_id,
                         normalized_text=normalized,
                     )
+                    if metrics.nav is None:
+                        from app.integrations.mf_nav_provider import lookup_latest_nav
+
+                        nav_result = await lookup_latest_nav(metrics.fund_name)
+                        if nav_result is not None:
+                            metrics = metrics.model_copy(
+                                update={
+                                    "nav": nav_result.nav,
+                                    "nav_date": nav_result.nav_date,
+                                    "nav_source_url": nav_result.source_url,
+                                }
+                            )
+                            report.record("nav", "amfi_http")
+                            report.record("nav_date", "amfi_http")
                     extracted_count = len(report.fields_extracted)
                     missing_count = len(report.fields_missing)
                     print(
@@ -226,7 +240,7 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
                     )
                     if report.js_only_missing:
                         print(
-                            f"  INFO  {doc_id}: JS-only fields not available: "
+                            f"  INFO  {doc_id}: snapshot fields not available: "
                             f"{report.js_only_missing}"
                         )
 

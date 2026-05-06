@@ -132,6 +132,8 @@ class MFReturns(BaseModel):
     one_year: float | None = None
     three_year: float | None = None
     five_year: float | None = None
+    ten_year: float | None = None
+    all_time: float | None = None
     since_inception: float | None = None
 
 
@@ -139,6 +141,7 @@ class MFHolding(BaseModel):
     name: str
     weight_pct: float | None = None
     sector: str | None = None
+    instrument: str | None = None
 
 
 class MFSectorAlloc(BaseModel):
@@ -146,11 +149,33 @@ class MFSectorAlloc(BaseModel):
     weight_pct: float | None = None
 
 
+class MFInvestmentReturn(BaseModel):
+    period: str
+    total_investment: float | None = None
+    current_value: float | None = None
+    return_pct: float | None = None
+
+
+class MFReturnsAndRankings(BaseModel):
+    fund_returns: dict[str, float] = Field(default_factory=dict)
+    category_average: dict[str, float] = Field(default_factory=dict)
+    rank: dict[str, int] = Field(default_factory=dict)
+
+
+class MFFundManager(BaseModel):
+    name: str
+    tenure: str | None = None
+    education: str | None = None
+    experience: str | None = None
+    also_manages: list[str] = Field(default_factory=list)
+
+
 class MFFundMetrics(BaseModel):
     """Structured mutual-fund metrics extracted from a Groww MF page.
 
-    Fields that cannot be extracted without JavaScript rendering are None.
-    Inspect the accompanying ExtractionReport for per-field availability.
+    Some fields may be unavailable from the indexed page snapshot and can be
+    enriched from an approved HTTP-only source such as AMFI. Playwright is not
+    used for mutual-fund collection.
     """
 
     doc_id: str
@@ -162,6 +187,7 @@ class MFFundMetrics(BaseModel):
     option: str | None = None            # "Growth" | "IDCW"
     nav: float | None = None
     nav_date: str | None = None
+    nav_source_url: str | None = None
     aum_cr: float | None = None          # AUM in crores
     expense_ratio_pct: float | None = None
     exit_load_pct: float | None = None
@@ -173,7 +199,11 @@ class MFFundMetrics(BaseModel):
     min_sip_amount: float | None = None
     min_lumpsum_amount: float | None = None
     returns: MFReturns | None = None
+    investment_returns: list[MFInvestmentReturn] = Field(default_factory=list)
+    returns_and_rankings: MFReturnsAndRankings | None = None
     top_holdings: list[MFHolding] = Field(default_factory=list)
+    advanced_ratios: dict[str, float] = Field(default_factory=dict)
+    fund_managers: list[MFFundManager] = Field(default_factory=list)
     sector_allocation: list[MFSectorAlloc] = Field(default_factory=list)
     asset_allocation: dict[str, float] = Field(default_factory=dict)
     fund_objective: str | None = None

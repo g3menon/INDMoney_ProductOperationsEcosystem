@@ -107,10 +107,24 @@ async def _scrape_document(
             doc_id=doc_id,
             normalized_text=normalized,
         )
+        if metrics.nav is None:
+            from app.integrations.mf_nav_provider import lookup_latest_nav
+
+            nav_result = await lookup_latest_nav(metrics.fund_name)
+            if nav_result is not None:
+                metrics = metrics.model_copy(
+                    update={
+                        "nav": nav_result.nav,
+                        "nav_date": nav_result.nav_date,
+                        "nav_source_url": nav_result.source_url,
+                    }
+                )
+                report.record("nav", "amfi_http")
+                report.record("nav_date", "amfi_http")
         print(
             f"  OK    {doc_id}: {len(normalized):,} chars | "
             f"{len(report.fields_extracted)} fields extracted | "
-            f"{len(report.js_only_missing)} JS-only missing"
+            f"{len(report.js_only_missing)} snapshot fields missing"
         )
 
         doc = SourceDocument(
@@ -319,7 +333,10 @@ def _jsonish(v: object) -> str:
 def _format_metrics_for_embedding(metrics: "MFFundMetrics") -> str:
     """Include ALL requested fields as explicit keys for embedding."""
     r = metrics.returns.model_dump() if metrics.returns else None
+    investment_returns = [row.model_dump() for row in metrics.investment_returns]
+    returns_and_rankings = metrics.returns_and_rankings.model_dump() if metrics.returns_and_rankings else None
     top_holdings = [h.model_dump() for h in metrics.top_holdings]
+    fund_managers = [m.model_dump() for m in metrics.fund_managers]
     sector_alloc = [s.model_dump() for s in metrics.sector_allocation]
     asset_alloc = metrics.asset_allocation or {}
 
@@ -333,6 +350,7 @@ def _format_metrics_for_embedding(metrics: "MFFundMetrics") -> str:
         f"option: {_jsonish(metrics.option)}",
         f"nav: {_jsonish(metrics.nav)}",
         f"nav_date: {_jsonish(metrics.nav_date)}",
+        f"nav_source_url: {_jsonish(metrics.nav_source_url)}",
         f"aum_cr: {_jsonish(metrics.aum_cr)}",
         f"expense_ratio_pct: {_jsonish(metrics.expense_ratio_pct)}",
         f"exit_load_pct: {_jsonish(metrics.exit_load_pct)}",
@@ -344,7 +362,11 @@ def _format_metrics_for_embedding(metrics: "MFFundMetrics") -> str:
         f"min_sip_amount: {_jsonish(metrics.min_sip_amount)}",
         f"min_lumpsum_amount: {_jsonish(metrics.min_lumpsum_amount)}",
         f"returns: {_jsonish(r)}",
+        f"investment_returns: {_jsonish(investment_returns)}",
+        f"returns_and_rankings: {_jsonish(returns_and_rankings)}",
         f"top_holdings: {_jsonish(top_holdings)}",
+        f"advanced_ratios: {_jsonish(metrics.advanced_ratios)}",
+        f"fund_managers: {_jsonish(fund_managers)}",
         f"sector_allocation: {_jsonish(sector_alloc)}",
         f"asset_allocation: {_jsonish(asset_alloc)}",
         f"fund_objective: {_jsonish(metrics.fund_objective)}",
