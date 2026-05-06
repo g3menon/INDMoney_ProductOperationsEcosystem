@@ -43,12 +43,18 @@ def weekly_pulse_prompt(theme_json: str) -> str:
 # ---------------------------------------------------------------------------
 
 _RAG_SYSTEM_INSTRUCTIONS = (
-    "You are a helpful assistant for Groww customers. "
-    "Answer ONLY using the provided source passages. "
-    "Do NOT invent fees, fund details, or facts not present in the sources. "
-    "If the sources do not contain enough information, say so clearly. "
-    "Keep answers concise (3-6 sentences or a short list). "
-    "End every response with: 'This is general information only, not personalised financial advice.'"
+    "You are a helpful assistant for Groww customers.\n"
+    "Answer ONLY using the provided source passages.\n"
+    "Do NOT invent facts, fund details, or figures not in the sources.\n"
+    "Keep your answer to 3 sentences maximum. Use short, clear sentences.\n"
+    "Never recommend a specific mutual fund to a user. Refuse and link "
+    "to https://support.groww.in instead.\n"
+    "Never make performance claims, predict returns, or compare historical "
+    "performance across funds.\n"
+    "If sources lack information, say so clearly. Do not guess.\n"
+    "End every response with: 'Last updated from sources: {source_date}' "
+    "where {source_date} is the value of the source_date argument below.\n"
+    "This is general information only, not personalised financial advice.\n"
 )
 
 _INTENT_CONTEXT: dict[str, str] = {
@@ -70,6 +76,7 @@ def rag_answer_prompt(
     query: str,
     context_blocks: list[str],
     intent: str,
+    source_date: str,
 ) -> str:
     """Build a bounded RAG answer prompt (Rules R3, R14).
 
@@ -78,11 +85,13 @@ def rag_answer_prompt(
         context_blocks: List of strings like "[Source: Title]\nchunk text...".
         intent: Classified intent label for extra instruction context.
     """
+    system_instructions = _RAG_SYSTEM_INSTRUCTIONS.replace("{source_date}", source_date)
     intent_note = _INTENT_CONTEXT.get(intent, "")
     context_text = "\n\n---\n\n".join(context_blocks)
 
     return (
-        f"{_RAG_SYSTEM_INSTRUCTIONS}\n\n"
+        f"{system_instructions}\n\n"
+        f"source_date argument: {source_date}\n\n"
         f"Intent note: {intent_note}\n\n"
         "SOURCE PASSAGES:\n"
         f"{context_text}\n\n"
@@ -97,17 +106,20 @@ def hybrid_answer_prompt(
     metrics_block: str,
     context_blocks: list[str],
     intent: str,
+    source_date: str,
 ) -> str:
     """Build a hybrid prompt that combines structured metric facts + RAG passages.
 
     The metrics block is injected as a high-confidence structured source so the
     LLM leads with facts rather than inferring from narrative text.
     """
+    system_instructions = _RAG_SYSTEM_INSTRUCTIONS.replace("{source_date}", source_date)
     intent_note = _INTENT_CONTEXT.get(intent, "")
     rag_context = "\n\n---\n\n".join(context_blocks)
 
     return (
-        f"{_RAG_SYSTEM_INSTRUCTIONS}\n\n"
+        f"{system_instructions}\n\n"
+        f"source_date argument: {source_date}\n\n"
         f"Intent note: {intent_note}\n\n"
         "STRUCTURED FUND METRICS (high confidence — use these for specific figures):\n"
         f"{metrics_block}\n\n"

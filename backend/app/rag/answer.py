@@ -19,11 +19,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from app.schemas.rag import CitationSource, MFFundMetrics, ScoredChunk
+from app.utils.input_sanitize import sanitize_user_query
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -32,6 +36,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DISCLAIMER = "This is general information only, not personalised financial advice."
+_LAST_UPDATED_PREFIX = "Last updated from sources:"
 _MAX_CONTEXT_CHARS = 2400
 _MAX_CHUNKS_FOR_ANSWER = 5
 _CONTEXT_TOKEN_BUDGET = 2000
