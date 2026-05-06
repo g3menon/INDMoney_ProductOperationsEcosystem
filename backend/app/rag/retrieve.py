@@ -1,8 +1,8 @@
 """RAG retrieval orchestrator: BM25 + embeddings → RRF fusion → optional rerank.
 
-The RAGIndex is loaded once at backend startup from the JSON chunk index file
-(built by scripts/rebuild_index.py). A module-level singleton is maintained so
-all request handlers share the same in-memory index (Rules L8).
+The active RAG index is loaded once at backend startup. File mode reads the JSON
+chunk index; Supabase mode queries durable rag_chunks rows through pgvector/FTS.
+A module-level singleton is maintained so all request handlers share one facade.
 
 Failure modes (Rules G7):
 - Index file missing → RAGIndex is None → caller falls back to Phase 3 skeleton.
@@ -12,18 +12,19 @@ Failure modes (Rules G7):
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.rag.bm25 import BM25Index
-from app.rag.embeddings import EmbeddingIndex
+from app.rag.embeddings import EmbeddingIndex, _embed_text_sync
 from app.rag.fusion import reciprocal_rank_fusion
 from app.rag.rerank import rerank
+from app.repositories.rag_repository import SupabaseRAGRepository
 from app.schemas.rag import DocumentChunk, ScoredChunk
 
 if TYPE_CHECKING:
@@ -187,23 +188,161 @@ class RAGIndex:
         )
 
 
+class SupabaseRAGIndex:
+    """Hybrid retrieval facade backed by Supabase rag_chunks."""
+
+    def __init__(self, repo: SupabaseRAGRepository, stats: dict[str, int] | None = None) -> None:
+        self._repo = repo
+        self._stats = stats or {
+            "total_chunks": 0,
+            "chunks_with_embedding": 0,
+            "chunks_with_review_metadata": 0,
+        }
+
+    @classmethod
+    async def load(cls, settings: "Settings") -> "SupabaseRAGIndex":
+        repo = SupabaseRAGRepository(settings)
+        stats = await repo.get_stats()
+        logger.info("rag_supabase_index_loaded", extra=stats)
+        return cls(repo=repo, stats=stats)
+
+    @property
+    def total_chunks(self) -> int:
+        return int(self._stats.get("total_chunks") or 0)
+
+    @property
+    def chunks_with_embedding(self) -> int:
+        return int(self._stats.get("chunks_with_embedding") or 0)
+
+    @property
+    def bm25_available(self) -> bool:
+        return self.total_chunks > 0
+
+    @property
+    def embeddings_available(self) -> bool:
+        return self.chunks_with_embedding > 0
+
+    async def refresh_stats(self) -> None:
+        self._stats = await self._repo.get_stats()
+
+    async def search(
+        self,
+        query: str,
+        settings: "Settings",
+        top_k: int = 5,
+        use_rerank: bool = False,
+    ) -> list[ScoredChunk]:
+        result = await self.search_with_metadata(
+            query=query,
+            settings=settings,
+            top_k=top_k,
+            use_rerank=use_rerank,
+        )
+        return result.chunks
+
+    async def search_with_metadata(
+        self,
+        query: str,
+        settings: "Settings",
+        top_k: int = 5,
+        use_rerank: bool = False,
+    ) -> RetrievalResult:
+        t0 = time.monotonic()
+
+        bm25_results = await self._repo.search_bm25(query, top_k=top_k * 2)
+        query_vec = await asyncio.to_thread(_embed_text_sync, query, settings, "retrieval_query")
+        emb_results = (
+            await self._repo.search_embedding(query_vec, top_k=top_k * 2)
+            if query_vec is not None
+            else []
+        )
+
+        ranked_lists: list[list[ScoredChunk]] = []
+        if bm25_results:
+            ranked_lists.append(bm25_results)
+        if emb_results:
+            ranked_lists.append(emb_results)
+
+        if not ranked_lists:
+            elapsed_ms = int((time.monotonic() - t0) * 1000)
+            logger.info(
+                "rag_supabase_retrieve_done",
+                extra={
+                    "query_len": len(query),
+                    "bm25_hits": len(bm25_results),
+                    "emb_hits": len(emb_results),
+                    "fused": 0,
+                    "returned": 0,
+                    "retrieval_mode": "supabase_none",
+                    "elapsed_ms": elapsed_ms,
+                },
+            )
+            return RetrievalResult(
+                chunks=[],
+                bm25_hits=len(bm25_results),
+                embedding_hits=len(emb_results),
+                fused_hits=0,
+                retrieval_mode="supabase_none",
+            )
+
+        fused = reciprocal_rank_fusion(ranked_lists)[:top_k * 2]
+
+        if use_rerank and len(fused) > top_k:
+            final = await rerank(query, fused, settings, top_k=top_k)
+        else:
+            final = fused[:top_k]
+
+        elapsed_ms = int((time.monotonic() - t0) * 1000)
+        retrieval_mode = "supabase_hybrid" if emb_results else "supabase_bm25_only"
+        logger.info(
+            "rag_supabase_retrieve_done",
+            extra={
+                "query_len": len(query),
+                "bm25_hits": len(bm25_results),
+                "emb_hits": len(emb_results),
+                "fused": len(fused),
+                "returned": len(final),
+                "retrieval_mode": retrieval_mode,
+                "elapsed_ms": elapsed_ms,
+            },
+        )
+        return RetrievalResult(
+            chunks=final,
+            bm25_hits=len(bm25_results),
+            embedding_hits=len(emb_results),
+            fused_hits=len(fused),
+            retrieval_mode=retrieval_mode,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Module-level singleton (loaded at backend startup in main.py)
 # ---------------------------------------------------------------------------
 
-_rag_index: RAGIndex | None = None
+_rag_index: RAGIndex | SupabaseRAGIndex | None = None
 
 
-def get_rag_index() -> RAGIndex | None:
+def get_rag_index() -> RAGIndex | SupabaseRAGIndex | None:
     return _rag_index
 
 
-def set_rag_index(index: RAGIndex | None) -> None:
+def set_rag_index(index: RAGIndex | SupabaseRAGIndex | None) -> None:
     global _rag_index
     _rag_index = index
 
 
 async def load_rag_index_from_default() -> None:
-    """Called at startup (main.py lifespan). Safe to call even if index is absent."""
-    idx = RAGIndex.load_default()
+    """Called at startup. File mode is safe if absent; Supabase mode is durable."""
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    storage_mode = (settings.rag_storage_mode or "file").lower().strip()
+    if storage_mode == "supabase":
+        try:
+            idx = await SupabaseRAGIndex.load(settings)
+        except Exception as exc:
+            logger.error("rag_supabase_index_load_error", extra={"error": str(exc)})
+            idx = None
+    else:
+        idx = RAGIndex.load_default()
     set_rag_index(idx)

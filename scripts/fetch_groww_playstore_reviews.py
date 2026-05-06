@@ -1,4 +1,8 @@
 """
+Playwright is used exclusively for Play Store review collection.
+Playwright must not be used for any other data collection in this repo.
+Mutual fund pages must use httpx via backend/app/integrations/web_scraper.py.
+
 Play Store review collection job (Phase 2, Playwright).
 
 Rules:

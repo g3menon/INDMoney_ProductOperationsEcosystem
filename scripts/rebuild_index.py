@@ -72,29 +72,6 @@ def _load_fixture_metrics() -> list[dict]:
     return json.loads(_FIXTURE_METRICS_PATH.read_text(encoding="utf-8"))
 
 
-async def _render_html_with_playwright(url: str) -> str | None:
-    """Fetch fully rendered HTML using Playwright (optional).
-
-    Groww MF pages often populate NAV/AUM/holdings via client-side API calls.
-    This helper enables deterministic extraction without changing downstream code.
-    """
-    try:
-        from playwright.async_api import async_playwright  # type: ignore
-    except Exception:
-        return None
-
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.goto(url, wait_until="networkidle", timeout=45_000)
-            html = await page.content()
-            await browser.close()
-            return html
-    except Exception:
-        return None
-
-
 async def _scrape_document(
     entry: dict,
     today: str,
@@ -103,6 +80,7 @@ async def _scrape_document(
     from app.rag.ingest import clean_html_content, normalize_document_content
     from app.rag.mf_extractor import extract_from_html
     from app.schemas.rag import SourceDocument
+    from app.integrations.web_scraper import fetch_web_page
 
     url: str = entry["url"]
     doc_id: str = entry["doc_id"]
@@ -110,30 +88,8 @@ async def _scrape_document(
     doc_type: str = entry.get("doc_type", "mutual_fund_page")
 
     try:
-        import httpx  # type: ignore
-
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True) as client:
-            resp = await client.get(url, headers=headers)
-        if resp.status_code != 200:
-            print(f"  WARN  {doc_id}: HTTP {resp.status_code}")
-            return None, None
-
-        html = resp.text
-        use_playwright = os.getenv("USE_PLAYWRIGHT_RENDER", "").lower() in ("1", "true", "yes")
-        if use_playwright:
-            rendered = await _render_html_with_playwright(url)
-            if rendered and len(rendered) > len(html):
-                html = rendered
-                print(f"  INFO  {doc_id}: using Playwright-rendered HTML")
-            else:
-                print(f"  WARN  {doc_id}: Playwright render unavailable; using raw HTML")
+        fetched = await fetch_web_page(url)
+        html = fetched.content
         cleaned = clean_html_content(html)
         normalized = normalize_document_content(cleaned)
 

@@ -126,29 +126,6 @@ _MANIFEST_PATH = _repo_root() / "scripts" / "sources_manifest.json"
 _INDEX_DIR = _repo_root() / "backend" / "app" / "rag" / "index"
 
 
-async def _render_html_with_playwright(url: str) -> str | None:
-    """Fetch fully rendered HTML using Playwright (optional).
-
-    Groww MF pages often populate NAV/AUM/holdings via client-side API calls.
-    This helper enables deterministic extraction without changing downstream code.
-    """
-    try:
-        from playwright.async_api import async_playwright  # type: ignore
-    except Exception:
-        return None
-
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.goto(url, wait_until="networkidle", timeout=45_000)
-            html = await page.content()
-            await browser.close()
-            return html
-    except Exception:
-        return None
-
-
 def _load_manifest() -> list[dict]:
     if not _MANIFEST_PATH.exists():
         raise SystemExit(f"sources_manifest.json not found at {_MANIFEST_PATH}")
@@ -195,94 +172,81 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
 
     # ── Live scrape mode ────────────────────────────────────────────────────
     else:
+        """
+        Mutual fund and fee pages are fetched using httpx.AsyncClient only.
+        Playwright is not used here. Playwright is exclusively used for
+        Play Store review collection in scripts/fetch_groww_playstore_reviews.py.
+        """
+
+        from app.integrations.web_scraper import WebScraperError, fetch_web_page
         from app.rag.mf_extractor import extract_from_html
 
         print(f"\n[scrape] Fetching {len(manifest)} page(s)...")
 
         async def _scrape_all() -> tuple[list[SourceDocument], list[Any]]:
-            import httpx  # type: ignore
-
             scraped_docs: list[SourceDocument] = []
             scraped_metrics: list[Any] = []
-            use_playwright = os.getenv("USE_PLAYWRIGHT_RENDER", "").lower() in ("1", "true", "yes")
 
-            async with httpx.AsyncClient(
-                timeout=25.0,
-                follow_redirects=True,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) "
-                        "Chrome/120.0.0.0 Safari/537.36"
+            for entry in manifest:
+                url: str = entry["url"]
+                doc_id: str = entry["doc_id"]
+                title: str = entry["title"]
+                doc_type: str = entry.get("doc_type", "mutual_fund_page")
+
+                try:
+                    fetched = await fetch_web_page(url)
+                    html = fetched.content
+                    print(
+                        f"  FETCH {doc_id}: {len(html):,} bytes fetched "
+                        f"(HTTP {fetched.status_code}, final_url={fetched.final_url})"
                     )
-                },
-            ) as client:
-                for entry in manifest:
-                    url: str = entry["url"]
-                    doc_id: str = entry["doc_id"]
-                    title: str = entry["title"]
-                    doc_type: str = entry.get("doc_type", "mutual_fund_page")
 
-                    try:
-                        resp = await client.get(url)
-                        if resp.status_code != 200:
-                            print(f"  WARN  {doc_id}: HTTP {resp.status_code} — skipping")
-                            continue
+                    cleaned = clean_html_content(html)
+                    normalized = normalize_document_content(cleaned)
 
-                        html = resp.text
-                        if use_playwright:
-                            rendered = await _render_html_with_playwright(url)
-                            if rendered and len(rendered) > len(html):
-                                html = rendered
-                                print(f"  INFO  {doc_id}: using Playwright-rendered HTML")
-                            else:
-                                print(f"  WARN  {doc_id}: Playwright render unavailable; using raw HTML")
-                        print(f"  FETCH {doc_id}: {len(html):,} bytes fetched")
-
-                        cleaned = clean_html_content(html)
-                        normalized = normalize_document_content(cleaned)
-
-                        if len(normalized) < 200:
-                            print(
-                                f"  WARN  {doc_id}: only {len(normalized)} chars after cleaning"
-                                " — content may be JS-rendered; try --use-fixture"
-                            )
-
-                        # Structured extraction.
-                        metrics, report = extract_from_html(
-                            html=html,
-                            url=url,
-                            doc_id=doc_id,
-                            normalized_text=normalized,
-                        )
-                        extracted_count = len(report.fields_extracted)
-                        missing_count = len(report.fields_missing)
+                    if len(normalized) < 200:
                         print(
-                            f"  EXTR  {doc_id}: {extracted_count} fields extracted, "
-                            f"{missing_count} missing "
-                            f"(tiers: {sorted(set(report.tier_used.values()))})"
+                            f"  WARN  {doc_id}: only {len(normalized)} chars after cleaning"
+                            " - content may be JS-rendered; try --use-fixture"
                         )
-                        if report.js_only_missing:
-                            print(
-                                f"  INFO  {doc_id}: JS-only fields not available: "
-                                f"{report.js_only_missing}"
-                            )
 
-                        doc = SourceDocument(
-                            doc_id=doc_id,
-                            url=url,
-                            title=title,
-                            doc_type=doc_type,  # type: ignore[arg-type]
-                            last_checked=today,
-                            content=normalized,
-                            scraped_at=scraped_at,
+                    # Structured extraction.
+                    metrics, report = extract_from_html(
+                        html=html,
+                        url=url,
+                        doc_id=doc_id,
+                        normalized_text=normalized,
+                    )
+                    extracted_count = len(report.fields_extracted)
+                    missing_count = len(report.fields_missing)
+                    print(
+                        f"  EXTR  {doc_id}: {extracted_count} fields extracted, "
+                        f"{missing_count} missing "
+                        f"(tiers: {sorted(set(report.tier_used.values()))})"
+                    )
+                    if report.js_only_missing:
+                        print(
+                            f"  INFO  {doc_id}: JS-only fields not available: "
+                            f"{report.js_only_missing}"
                         )
-                        scraped_docs.append(doc)
-                        scraped_metrics.append(metrics.model_dump())
-                        print(f"  OK    {doc_id}: doc + metrics ready")
 
-                    except Exception as exc:
-                        print(f"  ERROR {doc_id}: {exc}")
+                    doc = SourceDocument(
+                        doc_id=doc_id,
+                        url=url,
+                        title=title,
+                        doc_type=doc_type,  # type: ignore[arg-type]
+                        last_checked=today,
+                        content=normalized,
+                        scraped_at=scraped_at,
+                    )
+                    scraped_docs.append(doc)
+                    scraped_metrics.append(metrics.model_dump())
+                    print(f"  OK    {doc_id}: doc + metrics ready")
+
+                except WebScraperError as exc:
+                    print(f"  ERROR {doc_id}: {exc}")
+                except Exception as exc:
+                    print(f"  ERROR {doc_id}: {exc}")
 
             return scraped_docs, scraped_metrics
 
@@ -292,7 +256,7 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
             print(
                 "\nNo pages scraped successfully. "
                 "Consider --use-fixture or check network connectivity.\n"
-                "Groww pages are Next.js / React apps; some fields require Playwright rendering."
+                "Groww pages are Next.js / React apps; some fields may not be available from raw HTML."
             )
             return 1
 
@@ -350,3 +314,4 @@ def _run_mf_sources(use_fixture: bool = False) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

@@ -32,6 +32,8 @@ For tests: `cd backend` then `.\.venv\Scripts\python.exe -m pytest`. The file `b
 
 Automated check (requires `py -3.11` / Python 3.11 installed): from `backend/`, run `.\ensure_python_env.ps1` — it creates or recreates `.venv` with 3.11 if needed and runs `pip install -r requirements.txt`.
 
+**Cursor / VS Code:** the repo includes `.vscode/settings.json` pointing at `backend/.venv` (Windows path). On macOS or Linux, choose **Python: Select Interpreter** → `backend/.venv/bin/python`, or run `python -m pytest` only after `source backend/.venv/bin/activate`.
+
 ### 0) Apply Supabase schema (one-time per project)
 
 - In Supabase SQL editor, run: `infra/supabase/phase1_phase2_schema.sql`

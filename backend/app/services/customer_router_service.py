@@ -234,6 +234,12 @@ async def _generate_customer_response(
         {
             "rag_chunks_retrieved": len(chunks),
             "retrieval_mode": retrieval.retrieval_mode,
+            "retrieval_stats": {
+                "bm25_hits": retrieval.bm25_hits,
+                "embedding_hits": retrieval.embedding_hits,
+                "fused_hits": retrieval.fused_hits,
+                "retrieval_mode": retrieval.retrieval_mode,
+            },
         }
     )
     logger.info(
@@ -288,6 +294,12 @@ def _base_metadata(intent: str) -> dict[str, object]:
         "rag_chunks_retrieved": 0,
         "rag_chunks_sent_to_llm": 0,
         "retrieval_mode": "none",
+        "retrieval_stats": {
+            "bm25_hits": 0,
+            "embedding_hits": 0,
+            "fused_hits": 0,
+            "retrieval_mode": "none",
+        },
     }
 
 

@@ -82,6 +82,10 @@ class Settings(BaseSettings):
         default=3,
         validation_alias=AliasChoices("MAX_RAG_CHUNKS_FOR_LLM"),
     )
+    rag_storage_mode: str = Field(
+        default="file",
+        validation_alias=AliasChoices("RAG_STORAGE_MODE"),
+    )
 
     gemini_rpm_limit: int = Field(
         default=8,
@@ -234,6 +238,7 @@ class Settings(BaseSettings):
             "supabase_configured": bool(self.supabase_url and self.supabase_service_role_key),
             "gemini_model": self.gemini_model,
             "default_timezone": self.default_timezone,
+            "rag_storage_mode": self.rag_storage_mode,
             "llm_keys_present": {
                 "gemini_primary": bool(self.gemini_api_key),
                 "gemini_fallback": bool(self.gemini_api_key_fallback),

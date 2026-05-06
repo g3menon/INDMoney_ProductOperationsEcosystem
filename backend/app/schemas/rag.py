@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-DocType = Literal["mutual_fund_page", "fee_explainer"]
+DocType = Literal["mutual_fund_page", "fee_explainer", "playstore_review"]
 
 IntentLabel = Literal[
     "mf_query",
@@ -40,6 +40,10 @@ class DocumentChunk(BaseModel):
     content: str
     chunk_index: int = 0
     embedding: list[float] | None = Field(default=None)
+    rating: int | None = Field(default=None)
+    review_date: str | None = Field(default=None)
+    app_version: str | None = Field(default=None)
+    found_review_helpful: int | None = Field(default=None)
 
 
 class ScoredChunk(BaseModel):
