@@ -1,4 +1,4 @@
-"""MIME shape for Gmail weekly pulse send (single text/html, CRLF via SMTP policy)."""
+"""MIME shape for Gmail weekly pulse (single text/html, base64 body, CRLF)."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ def test_raw_message_is_single_html_part() -> None:
         html="<!DOCTYPE html><html><body><p>Hi</p></body></html>",
     )
     decoded = _b64url_decode(raw_b64)
-    assert b"\r\n" in decoded
+    assert b"Content-Transfer-Encoding: base64" in decoded
     decoded_s = decoded.decode("utf-8")
     assert "multipart/alternative" not in decoded_s
     assert 'Content-Type: text/html; charset="utf-8"' in decoded_s

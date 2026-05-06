@@ -28,18 +28,16 @@ logger = logging.getLogger(__name__)
 def _make_raw_message(*, to: str, sender: str, subject: str, html: str) -> str:
     """Build RFC 5322 MIME and base64url-encode for ``messages.send``.
 
-    Gmail often displays only the plaintext child of ``multipart/alternative`` even
-    when a valid ``text/html`` part exists. Using a single ``text/html`` body is the
-    most reliable way to get styled pulse mail in Gmail and similar clients.
-
-    CRLF line endings via :class:`email.policy.SMTP`.
+    Single ``text/html`` part (no plaintext sibling) so Gmail shows the styled body.
+    Uses **base64** CTE so quoted-printable soft breaks never interact badly with the
+    Gmail API ``raw`` field. CRLF via :class:`email.policy.SMTP`.
     """
 
     msg = EmailMessage(policy=SMTP)
     msg["To"] = to
     msg["From"] = sender
     msg["Subject"] = subject
-    msg.set_content(html, subtype="html", charset="utf-8")
+    msg.set_content(html, subtype="html", charset="utf-8", cte="base64")
     return base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
 
 

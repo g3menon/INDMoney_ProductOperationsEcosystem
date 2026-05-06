@@ -158,6 +158,32 @@ def _stars(rating: int) -> str:
     )
 
 
+def _spacer_table(inner_html: str, *, padding_top_px: int = 14) -> str:
+    """Avoid <div> wrappers — many clients only honor table-based flow."""
+
+    return (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0">'
+        f'<tr><td style="padding-top:{padding_top_px}px;">{inner_html}</td></tr></table>'
+    )
+
+
+def _bar_table(width_pct: int, fill_hex: str, track_hex: str) -> str:
+    """Horizontal bar without <div> (Outlook/Gmail-safe)."""
+
+    w = max(4, min(100, width_pct))
+    return (
+        f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        f'style="margin-top:10px;border-collapse:collapse;">'
+        f'<tr><td height="8" bgcolor="{track_hex}" '
+        f'style="height:8px;border-radius:999px;padding:0;line-height:8px;font-size:0;">'
+        f'<table role="presentation" width="{w}%" cellpadding="0" cellspacing="0" '
+        f'style="border-collapse:collapse;"><tr>'
+        f'<td height="8" bgcolor="{fill_hex}" style="height:8px;border-radius:999px;'
+        f'line-height:8px;font-size:0;">&nbsp;</td></tr></table>'
+        f"</td></tr></table>"
+    )
+
+
 def build_pulse_plain(pulse: WeeklyPulse | None) -> tuple[str, str]:
     if pulse is None:
         subject = "Weekly Pulse — not available yet"
@@ -296,12 +322,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
             f'<p style="margin:4px 0 0 0;font-size:13px;line-height:1.55;color:{c["muted"]};">'
             f"This signal can affect trust, completion, or advisor demand if the same question "
             f"repeats across channels.</p>"
-            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-            f'style="margin-top:10px;"><tr>'
-            f'<td style="height:8px;border-radius:999px;background:{c["surfaceSoft"]};overflow:hidden;">'
-            f'<div style="height:8px;width:{intensity}%;border-radius:999px;'
-            f'background:{c["accent"]};"></div>'
-            f"</td></tr></table>"
+            f'{_bar_table(intensity, c["accent"], c["surfaceSoft"])}'
             f"</td></tr></table>"
         )
 
@@ -329,11 +350,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
             f'<span style="font-size:20px;font-weight:600;color:{c["text"]};">'
             f'{int(row["count"])}</span>'
             f"</td></tr></table>"
-            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-            f'style="margin-top:10px;"><tr>'
-            f'<td style="height:8px;border-radius:999px;background:{c["surfaceSoft"]};overflow:hidden;">'
-            f'<div style="height:8px;width:{pct}%;border-radius:999px;background:{c["accentBlue"]};">'
-            f"</div></td></tr></table>"
+            f'{_bar_table(pct, c["accentBlue"], c["surfaceSoft"])}'
             f'<p style="margin:10px 0 0 0;font-size:13px;line-height:1.55;color:{c["muted"]};">'
             f"{_e(str(row['explanation']))}</p>"
             f'<p style="margin:8px 0 0 0;font-size:11px;font-weight:700;color:{c["text"]};">'
@@ -541,7 +558,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
             f'<p style="margin:0;font-size:17px;font-weight:600;">Pulse themes</p>'
             f'<p style="margin:6px 0 0 0;font-size:13px;color:{c["muted"]};">'
             f"Issue clusters with PM-ready context and intensity.</p>"
-            f'<div style="margin-top:14px;">{"".join(themes_html_parts)}</div>'
+            f'{_spacer_table("".join(themes_html_parts))}'
             f"</td></tr></table></td>",
             f'<td style="width:42%;padding-left:8px;">'
             f'<table role="presentation" width="100%" style="border-radius:16px;border:1px solid {c["border"]};'
@@ -550,7 +567,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
             f'<p style="margin:0;font-size:17px;font-weight:600;">Why customers book advisors</p>'
             f'<p style="margin:6px 0 0 0;font-size:13px;color:{c["muted"]};">'
             f"Inferred from pulse themes until direct booking analytics are available.</p>"
-            f'<div style="margin-top:14px;">{"".join(booking_html_parts)}</div>'
+            f'{_spacer_table("".join(booking_html_parts))}'
             f"</td></tr></table></td>"
             f"</tr></table></td></tr>",
             # VOC + Actions
@@ -562,7 +579,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
             f'<p style="margin:0;font-size:17px;font-weight:600;">Voice of customer</p>'
             f'<p style="margin:6px 0 0 0;font-size:13px;color:{c["muted"]};">'
             f"Representative quotes from the current pulse.</p>"
-            f'<div style="margin-top:14px;">{"".join(quotes_html)}</div>'
+            f'{_spacer_table("".join(quotes_html))}'
             f"</td></tr></table></td>"
             f'<td style="width:50%;padding-left:8px;">'
             f'<table width="100%" style="border-radius:16px;border:1px solid {c["border"]};background:{c["surface"]};">'
@@ -570,7 +587,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
             f'<p style="margin:0;font-size:17px;font-weight:600;">Recommended actions</p>'
             f'<p style="margin:6px 0 0 0;font-size:13px;color:{c["muted"]};">'
             f"Prioritized follow-ups for PM, Ops, Support, and advisor teams.</p>"
-            f'<div style="margin-top:14px;">{"".join(actions_html)}</div>'
+            f'{_spacer_table("".join(actions_html))}'
             f"</td></tr></table></td>"
             f"</tr></table></td></tr>",
             f'<tr><td align="center" style="padding:18px 4px 8px 4px;font-size:11px;line-height:1.5;'
