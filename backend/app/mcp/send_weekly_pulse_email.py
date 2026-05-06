@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import logging
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any
 
@@ -16,6 +17,7 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 
 from app.core.config import get_settings
+from app.mcp.pulse_email_template import build_pulse_email_parts
 from app.repositories.log_repository import log_email_action, log_pulse_send
 from app.schemas.pulse import WeeklyPulse
 from app.repositories.token_repository import get_google_oauth_token
@@ -23,37 +25,13 @@ from app.repositories.token_repository import get_google_oauth_token
 logger = logging.getLogger(__name__)
 
 
-def _build_pulse_body(pulse: WeeklyPulse | None) -> tuple[str, str]:
-    if pulse is None:
-        subject = "Weekly Pulse — not available"
-        body = (
-            "Hello,\n\n"
-            "Weekly Pulse is not available yet. Please generate a pulse first.\n\n"
-            "— Groww Product Operations Ecosystem\n"
-        )
-        return subject, body
-
-    themes = "\n".join([f"- {t.theme}: {t.summary} (count={t.count})" for t in pulse.themes[:8]]) or "- (none)"
-    actions = "\n".join([f"- {a}" for a in pulse.recommended_actions[:8]]) or "- (none)"
-    subject = f"Weekly Pulse — {pulse.pulse_id}"
-    body = (
-        "Hello,\n\n"
-        "Here is the latest Weekly Pulse summary.\n\n"
-        f"Pulse ID: {pulse.pulse_id}\n"
-        f"Degraded: {pulse.degraded}\n"
-        f"Narrative:\n{pulse.narrative}\n\n"
-        f"Themes:\n{themes}\n\n"
-        f"Recommended actions:\n{actions}\n\n"
-        "— Groww Product Operations Ecosystem\n"
-    )
-    return subject, body
-
-
-def _make_raw_message(*, to: str, sender: str, subject: str, body: str) -> str:
-    msg = MIMEText(body, "plain")
+def _make_raw_message(*, to: str, sender: str, subject: str, plain: str, html: str) -> str:
+    msg = MIMEMultipart("alternative")
     msg["to"] = to
     msg["from"] = sender
     msg["subject"] = subject
+    msg.attach(MIMEText(plain, "plain", "utf-8"))
+    msg.attach(MIMEText(html, "html", "utf-8"))
     return base64.urlsafe_b64encode(msg.as_bytes()).decode()
 
 
@@ -70,7 +48,7 @@ async def send_weekly_pulse_email(
     settings = get_settings()
     sender_email = settings.gmail_sender_email
 
-    subject, body = _build_pulse_body(pulse)
+    subject, plain, html = build_pulse_email_parts(pulse)
     pulse_id = pulse.pulse_id if pulse else None
 
     if not sender_email:
@@ -82,7 +60,7 @@ async def send_weekly_pulse_email(
         await log_pulse_send(settings=settings, pulse_id=pulse_id, email=to_email, status="skipped", error="token_missing")
         return {"status": "skipped", "reason": "google_oauth_token not available"}
 
-    raw = _make_raw_message(to=to_email, sender=sender_email, subject=subject, body=body)
+    raw = _make_raw_message(to=to_email, sender=sender_email, subject=subject, plain=plain, html=html)
 
     # Idempotency key: pulse_id + email (best-effort; DB enforces uniqueness if configured)
     idem = f"weekly_pulse:{pulse_id or 'none'}:{to_email.lower()}"

@@ -1,0 +1,23 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      PHASE1_SKIP_SUPABASE_STARTUP_CHECK: "${PHASE1_SKIP_SUPABASE_STARTUP_CHECK:-}"
+
+  pulse-scheduler:
+    image: alpine:3.19
+    depends_on:
+      - backend
+    environment:
+      SCHEDULER_SHARED_SECRET: "${SCHEDULER_SHARED_SECRET:-}"
+      BACKEND_URL: "http://backend:8080"
+    volumes:
+      - ./scripts/pulse_cron_entry.sh:/pulse_cron_entry.sh:ro
+      - ./scripts/pulse_cron_trigger.sh:/pulse_cron_trigger.sh:ro
+    command: ["/bin/sh", "/pulse_cron_entry.sh"]
