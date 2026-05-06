@@ -42,9 +42,19 @@ async def lifespan(_app: FastAPI):
         logger.info("startup_supabase_ok", extra={"correlation_id": "-"})
 
     # Phase 4: load RAG index from disk (safe if absent; chat degrades to Phase 3 skeleton).
+    from pathlib import Path
+
     from app.rag.retrieve import load_rag_index_from_default
 
+    chunks_path = Path(__file__).resolve().parent / "rag" / "index" / "chunks.json"
+    rag_mode = (settings.rag_storage_mode or "file").lower().strip()
     await load_rag_index_from_default()
+    if rag_mode == "file" and not chunks_path.is_file():
+        logger.warning(
+            "RAG index (chunks.json) missing — run scripts/rebuild_index.py from the "
+            "repository root to enable full RAG",
+            extra={"correlation_id": "-", "path": str(chunks_path)},
+        )
 
     # Phase 4 extended: load MF metrics store from disk (safe if absent; degrades to RAG-only).
     from app.rag.metrics_store import load_metrics_store_from_default

@@ -1,7 +1,8 @@
 """HTTP-only web scraper for non-Play-Store sources.
 
-This module is for mutual fund and fee document pages. Playwright is reserved
-for Play Store review collection only.
+Mutual fund / fee pages use this for the first fetch; optional Chromium rendering
+for Groww MF pages lives in ``app.rag.mf_extractor`` (used by ``rebuild_index.py``).
+Play Store review collection uses Playwright separately.
 """
 
 from __future__ import annotations

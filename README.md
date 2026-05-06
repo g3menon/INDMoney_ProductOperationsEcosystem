@@ -8,6 +8,17 @@ Single-repo dashboard (Next.js + FastAPI + Supabase) for **Groww** product opera
 - **Ops:** `Docs/Runbook.md`  
 - **Full E2E without voice:** use **End-to-end test (text-only, before voice / Phase 8)** in the runbook before depending on STT/TTS.
 
+### RAG + MF metrics index (Phase 4)
+
+Full BM25/embedding retrieval and structured MF answers need on-disk indexes generated from the fixture corpus (or a live scrape). **Run this once per clone** (or after changing sources):
+
+```powershell
+# Repository root (e.g. Groww_ProductOperationsEcosystem\)
+backend\.venv\Scripts\python.exe scripts\rebuild_index.py
+```
+
+That writes `backend/app/rag/index/chunks.json` and `backend/app/rag/index/mf_metrics.json`. For live Groww pages with JS-rendered NAV/AUM/holdings, use `scripts/rebuild_index.py --scrape` (network + Chromium; run `playwright install chromium` if needed). Set `SKIP_PLAYWRIGHT_MF=true` to skip browser enrichment during scrape.
+
 ## Phase 1 — local smoke
 
 1. Copy `.env.example` to `.env` and fill **backend** `FRONTEND_BASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` (use `PHASE1_SKIP_SUPABASE_STARTUP_CHECK=true` only if you intentionally run without Supabase).
@@ -103,3 +114,4 @@ cd backend
 .\.venv\Scripts\python.exe -m app.evals.run_all --phase 1
 .\.venv\Scripts\python.exe -m app.evals.run_all --phase 2
 ```
+

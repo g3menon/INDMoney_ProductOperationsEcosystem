@@ -82,7 +82,8 @@ def test_unavailable_nav_copy_does_not_recommend_playwright() -> None:
         "direct_metric_query",
     ).answer
 
-    assert "not available in the current indexed source data" in answer
+    assert "NAV data is currently being updated" in answer
+    assert "groww.in" in answer
     assert "Playwright" not in answer
     assert "requires live page data" not in answer
 

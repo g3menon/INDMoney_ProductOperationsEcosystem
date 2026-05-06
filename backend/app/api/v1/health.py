@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.core.config import get_settings
 from app.core.dependencies import CorrelationIdDep
 from app.integrations.supabase.client import check_supabase_connectivity
+from app.rag.metrics_store import get_metrics_store
 from app.rag.retrieve import get_rag_index
 from app.schemas.common import APIEnvelope
 
@@ -20,8 +21,12 @@ async def health(correlation_id: CorrelationIdDep) -> APIEnvelope[dict[str, Any]
     settings = get_settings()
     ok, supa_msg = await check_supabase_connectivity(settings)
     rag_index = get_rag_index()
+    metrics_store = get_metrics_store()
     rag_total_chunks = rag_index.total_chunks if rag_index is not None else 0
     rag_chunks_with_embedding = rag_index.chunks_with_embedding if rag_index is not None else 0
+    nav_available = (
+        any(m.nav is not None for m in metrics_store.all()) if metrics_store is not None else False
+    )
     data = {
         "status": "ok" if ok else "degraded",
         "correlation_id": correlation_id,
@@ -34,6 +39,11 @@ async def health(correlation_id: CorrelationIdDep) -> APIEnvelope[dict[str, Any]
             and rag_index.bm25_available
             and rag_chunks_with_embedding > 0
         ),
+        "rag_index_status": {
+            "chunks_loaded": rag_index is not None,
+            "metrics_loaded": metrics_store is not None,
+            "nav_available": nav_available,
+        },
         "settings": settings.safe_public_dict(),
     }
     return APIEnvelope(success=True, message="health", data=data)

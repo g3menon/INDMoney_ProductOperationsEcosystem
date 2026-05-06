@@ -173,9 +173,9 @@ class MFFundManager(BaseModel):
 class MFFundMetrics(BaseModel):
     """Structured mutual-fund metrics extracted from a Groww MF page.
 
-    Some fields may be unavailable from the indexed page snapshot and can be
-    enriched from an approved HTTP-only source such as AMFI. Playwright is not
-    used for mutual-fund collection.
+    Fields may be filled from static HTML, ``__NEXT_DATA__``, regex on visible text,
+    optional Playwright-rendered HTML during ``rebuild_index.py --scrape``, AMFI
+    lookup for NAV, and/or fixture/bootstrap merges for local development.
     """
 
     doc_id: str

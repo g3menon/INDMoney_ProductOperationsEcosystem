@@ -9,9 +9,13 @@ Extraction strategy (four tiers, applied in order, results merged):
   Tier 4 — Regex on normalized text : reliable fallback for fields present as
             narrative prose (expense ratio, exit load, category, risk, minimums).
 
-Fields absent from the indexed HTML snapshot are set to None and reported ONCE
-via ExtractionReport.log_summary(), not scattered as warnings. Playwright is
-reserved for Play Store review collection and is not used here.
+Optional **Playwright** (see ``fetch_groww_fund_page_html_playwright`` and
+``enrich_metrics_with_playwright``): loads the live page so client-rendered
+blocks (NAV, AUM, returns tables, holdings, sector mix) can be extracted when
+static HTTP HTML is a shell.
+
+Fields absent from a given HTML snapshot are set to None and summarized ONCE
+via ExtractionReport.log_summary().
 """
 
 from __future__ import annotations
@@ -225,6 +229,115 @@ def extract_from_html(
 
     report.log_summary()
     return metrics, report
+
+
+# ---------------------------------------------------------------------------
+# Playwright: client-rendered Groww pages
+# ---------------------------------------------------------------------------
+
+
+async def fetch_groww_fund_page_html_playwright(url: str, *, headless: bool = True) -> str | None:
+    """Load ``url`` in Chromium and return final HTML after client render.
+
+    Requires ``playwright`` and browser binaries (``playwright install chromium``).
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        logger.warning(
+            "playwright_import_failed",
+            extra={"hint": "pip install playwright && playwright install chromium"},
+        )
+        return None
+
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=headless)
+            try:
+                page = await browser.new_page()
+                await page.goto(url, wait_until="domcontentloaded", timeout=90_000)
+                # Groww MF pages paint NAV/AUM after hydration; wait for a rupee price.
+                try:
+                    await page.locator("text=/₹\\s*[\\d,]+\\./").first.wait_for(
+                        timeout=25_000,
+                        state="visible",
+                    )
+                except Exception:
+                    await page.wait_for_timeout(3000)
+                else:
+                    await page.wait_for_timeout(500)
+                return await page.content()
+            finally:
+                await browser.close()
+    except Exception as exc:
+        logger.warning(
+            "playwright_groww_fetch_failed",
+            extra={"url": url[:120], "error": str(exc)[:200]},
+        )
+        return None
+
+
+def _value_empty_for_merge(val: Any) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, str) and not val.strip():
+        return True
+    if isinstance(val, (list, tuple)) and len(val) == 0:
+        return True
+    if isinstance(val, dict) and len(val) == 0:
+        return True
+    if hasattr(val, "model_dump"):
+        nested = val.model_dump()
+        if isinstance(nested, dict) and nested:
+            return all(_value_empty_for_merge(v) for v in nested.values())
+        return True
+    return False
+
+
+def merge_metrics_fill_empty(base: MFFundMetrics, fill: MFFundMetrics) -> MFFundMetrics:
+    """Keep ``base`` facts; overlay non-empty values from ``fill`` where base is empty."""
+    out = base.model_dump()
+    fd = fill.model_dump()
+    for name in MFFundMetrics.model_fields:
+        if name == "doc_id":
+            continue
+        if _value_empty_for_merge(getattr(base, name)):
+            out[name] = fd[name]
+    return MFFundMetrics.model_validate(out)
+
+
+async def enrich_metrics_with_playwright(metrics: MFFundMetrics) -> MFFundMetrics:
+    """Re-fetch the fund page with Playwright and merge newly extracted fields."""
+    html = await fetch_groww_fund_page_html_playwright(metrics.source_url)
+    if not html:
+        return metrics
+
+    from app.rag.ingest import clean_html_content, normalize_document_content
+
+    cleaned = clean_html_content(html)
+    normalized = normalize_document_content(cleaned)
+    richer, _report = extract_from_html(
+        html=html,
+        url=metrics.source_url,
+        doc_id=metrics.doc_id,
+        normalized_text=normalized,
+    )
+    return merge_metrics_fill_empty(metrics, richer)
+
+
+def metrics_needs_playwright_enrichment(m: MFFundMetrics) -> bool:
+    """True when key fund stats still missing after static HTTP extraction."""
+    r = m.returns
+    returns_empty = r is None or all(
+        getattr(r, name) is None for name in MFReturns.model_fields
+    )
+    return (
+        m.nav is None
+        or m.aum_cr is None
+        or returns_empty
+        or len(m.top_holdings) == 0
+        or len(m.sector_allocation) == 0
+    )
 
 
 # ---------------------------------------------------------------------------

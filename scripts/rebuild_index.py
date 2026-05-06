@@ -10,10 +10,16 @@ them, optionally generates Gemini embeddings, and writes:
   - backend/app/rag/index/mf_metrics.json (structured metrics index for direct lookup)
 
 Usage:
-  # Use fixture data (no network required):
+  # From repository root (this script adds ``backend/`` to ``sys.path``):
+  python scripts/rebuild_index.py
+
+  # Same as default (explicit fixture mode):
   python scripts/rebuild_index.py --use-fixture
 
-  # Scrape live MF/fee pages then build (requires network):
+  # From ``backend/``:
+  python ../scripts/rebuild_index.py
+
+  # Scrape live MF/fee pages then build (requires network; uses Playwright for JS fields when needed):
   python scripts/rebuild_index.py --scrape
 
   # Scrape + generate Gemini embeddings (requires GEMINI_API_KEY):
@@ -72,6 +78,117 @@ def _load_fixture_metrics() -> list[dict]:
     return json.loads(_FIXTURE_METRICS_PATH.read_text(encoding="utf-8"))
 
 
+def _fixture_metrics_by_doc_id() -> dict[str, dict]:
+    if not _FIXTURE_METRICS_PATH.exists():
+        return {}
+    return {
+        r["doc_id"]: r
+        for r in _load_fixture_metrics()
+        if isinstance(r, dict) and r.get("doc_id")
+    }
+
+
+def _value_empty_for_bootstrap(val: Any) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, str) and not val.strip():
+        return True
+    if isinstance(val, (list, tuple)) and len(val) == 0:
+        return True
+    if isinstance(val, dict) and len(val) == 0:
+        return True
+    if hasattr(val, "model_dump"):
+        d = val.model_dump()
+        if isinstance(d, dict) and d:
+            return all(_value_empty_for_bootstrap(v) for v in d.values())
+        return True
+    return False
+
+
+def _bootstrap_metrics_records_from_fixture(records: list[dict]) -> list[dict]:
+    """Fill null / empty scraped fields from ``mf_metrics.json`` fixture (same ``doc_id``)."""
+    fix_by_id = _fixture_metrics_by_doc_id()
+    if not fix_by_id:
+        return records
+    from app.schemas.rag import MFFundMetrics
+
+    out: list[dict] = []
+    n_filled = 0
+    for rec in records:
+        doc_id = rec.get("doc_id") if isinstance(rec, dict) else None
+        if not doc_id or doc_id not in fix_by_id:
+            out.append(rec)
+            continue
+        try:
+            live = MFFundMetrics.model_validate(rec)
+            fix = MFFundMetrics.model_validate(fix_by_id[doc_id])
+        except Exception:
+            out.append(rec)
+            continue
+        merged = live.model_dump()
+        fd = fix.model_dump()
+        record_changed = False
+        for name in MFFundMetrics.model_fields:
+            if name == "doc_id":
+                continue
+            if _value_empty_for_bootstrap(getattr(live, name)):
+                fv = fd[name]
+                if not _value_empty_for_bootstrap(fv):
+                    merged[name] = fv
+                    record_changed = True
+        if record_changed:
+            n_filled += 1
+        out.append(merged)
+    if n_filled:
+        print(f"\n[bootstrap] Filled gaps from fixture for {n_filled} metric record(s).")
+    return out
+
+
+def _supplement_docs_from_fixture_corpus(
+    manifest: list[dict],
+    docs: list["SourceDocument"],
+) -> list["SourceDocument"]:
+    """Add ``mf_corpus.json`` docs for manifest entries missing after scrape."""
+    if not _FIXTURE_CORPUS_PATH.exists():
+        return docs
+    have = {d.doc_id for d in docs}
+    manifest_ids = {e["doc_id"] for e in manifest if e.get("doc_id")}
+    need = manifest_ids - have
+    if not need:
+        return docs
+    try:
+        fixture_docs = _load_fixture_corpus()
+    except Exception:
+        return docs
+    by_id = {d.doc_id: d for d in fixture_docs}
+    extra = [by_id[i] for i in sorted(need) if i in by_id]
+    if extra:
+        print(
+            f"\n[fixture] Supplementing {len(extra)} document(s) from mf_corpus.json "
+            "(scrape missing or short)."
+        )
+    return docs + extra
+
+
+def _supplement_metrics_from_fixture_for_docs(
+    docs: list["SourceDocument"],
+    metrics_records: list[dict],
+) -> list[dict]:
+    """Append fixture metrics rows for ``doc_id`` present in ``docs`` but missing in records."""
+    fix_by_id = _fixture_metrics_by_doc_id()
+    if not fix_by_id:
+        return metrics_records
+    have = {m.get("doc_id") for m in metrics_records if isinstance(m, dict) and m.get("doc_id")}
+    extra: list[dict] = []
+    for d in docs:
+        if d.doc_id not in have and d.doc_id in fix_by_id:
+            extra.append(dict(fix_by_id[d.doc_id]))
+            have.add(d.doc_id)
+    if extra:
+        print(f"\n[fixture] Supplementing {len(extra)} metric record(s) from mf_metrics.json")
+    return metrics_records + extra
+
+
 async def _scrape_document(
     entry: dict,
     today: str,
@@ -121,6 +238,21 @@ async def _scrape_document(
                 )
                 report.record("nav", "amfi_http")
                 report.record("nav_date", "amfi_http")
+
+        skip_pw = os.getenv("SKIP_PLAYWRIGHT_MF", "").lower() in ("1", "true", "yes")
+        if not skip_pw:
+            from app.rag.mf_extractor import (
+                enrich_metrics_with_playwright,
+                metrics_needs_playwright_enrichment,
+            )
+
+            if metrics_needs_playwright_enrichment(metrics):
+                try:
+                    metrics = await enrich_metrics_with_playwright(metrics)
+                    print(f"  PLAY  {doc_id}: Playwright enrichment applied")
+                except Exception as pw_exc:
+                    print(f"  WARN  {doc_id}: Playwright enrichment failed — {pw_exc}")
+
         print(
             f"  OK    {doc_id}: {len(normalized):,} chars | "
             f"{len(report.fields_extracted)} fields extracted | "
@@ -195,9 +327,14 @@ async def _build_index(
             missing = [e["doc_id"] for e in manifest if e["doc_id"] not in scraped_doc_ids]
             print(f"  Fixture fallback used for: {missing}")
 
+        docs = _supplement_docs_from_fixture_corpus(manifest, docs)
+
     if not docs:
         print("ERROR: No documents to index. Use --use-fixture or --scrape.")
         sys.exit(1)
+
+    metrics_records = _supplement_metrics_from_fixture_for_docs(docs, metrics_records)
+    metrics_records = _bootstrap_metrics_records_from_fixture(metrics_records)
 
     # ── Chunk documents ──────────────────────────────────────────────────────
     print(f"\n[chunk] Chunking {len(docs)} document(s)...")

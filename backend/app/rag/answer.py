@@ -60,6 +60,9 @@ _METRIC_FIELD_GROUPS: list[tuple[frozenset[str], str]] = [
     (frozenset(["rating", "star rating", "crisil", "morningstar"]), "rating"),
 ]
 _UNAVAILABLE = "not available in the current indexed source data"
+_NAV_UNAVAILABLE = (
+    "NAV data is currently being updated. Please check groww.in for the latest NAV."
+)
 
 
 @dataclass
@@ -224,7 +227,7 @@ def _render_field_lines(metrics: MFFundMetrics, fields: list[str]) -> list[str]:
             if metrics.nav_source_url:
                 lines.append(f"NAV Source: {metrics.nav_source_url}")
         else:
-            lines.append(f"NAV: {_UNAVAILABLE}")
+            lines.append(f"NAV: {_NAV_UNAVAILABLE}")
 
     if "aum" in fields:
         if metrics.aum_cr is not None:
@@ -366,8 +369,7 @@ def compose_structured_answer(
 ) -> AnswerResult:
     """Generate a deterministic structured answer from MFFundMetrics.
 
-    No LLM call is made.  Fields unavailable without JS rendering are noted
-    inline rather than omitted, so the customer understands the limitation.
+    No LLM call is made. Missing fields are noted inline rather than omitted.
     """
     fields = _detect_requested_fields(query)
     body = "\n".join(_render_field_lines(metrics, fields))

@@ -1,7 +1,7 @@
-"""HTTP-only mutual-fund NAV lookup.
+"""HTTP-only mutual-fund NAV lookup from AMFI.
 
-Playwright is reserved for Play Store review collection. For NAV enrichment we
-use AMFI's public latest NAV report, which is a plain text HTTP resource.
+Uses AMFI's public latest NAV report (plain text). Optional Groww Playwright
+enrichment during index rebuild is separate (see ``app.rag.mf_extractor``).
 """
 
 from __future__ import annotations
