@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.schemas.rag import MFFundMetrics
 
+from app.rag.public_messages import NAV_UNAVAILABLE_FOR_USER
+
 
 # ---------------------------------------------------------------------------
 # Phase 2 — Weekly Pulse prompts
@@ -47,6 +49,8 @@ _RAG_SYSTEM_INSTRUCTIONS = (
     "Answer ONLY using the provided source passages. "
     "Do NOT invent fees, fund details, or facts not present in the sources. "
     "If the sources do not contain enough information, say so clearly. "
+    "Do not mention Playwright, JavaScript rendering, web scraping internals, "
+    "or other engineering tools. "
     "Keep answers concise (3-6 sentences or a short list). "
     "End every response with: 'This is general information only, not personalised financial advice.'"
 )
@@ -65,7 +69,10 @@ _HYBRID_SYSTEM_INSTRUCTIONS = (
     "If only one source type is present, use it for all factual points.\n"
     "If both source types are present, cite each inline as:\n"
     "  (Source: {title})\n"
-    "Never invent figures. If a figure is unavailable, write 'not available in source'.\n"
+    "Never invent figures. If NAV or another figure is given as unavailable in the\n"
+    "STRUCTURED FUND METRICS block, repeat that exact customer-facing wording only.\n"
+    "Do not mention Playwright, JavaScript rendering, scraping tools, or other\n"
+    "internal implementation details.\n"
     "End every response with the standard disclaimer."
 )
 
@@ -198,12 +205,14 @@ def format_metrics_block(metrics: "MFFundMetrics") -> str:
     if metrics.min_lumpsum_amount is not None:
         lines.append(f"Minimum Lump Sum: \u20b9{metrics.min_lumpsum_amount:,.0f}")
 
-    # NAV / AUM (live data; often None for fixture-based runs)
+    # NAV / AUM (always state NAV explicitly so the model does not invent reasons)
     if metrics.nav is not None:
         date_str = f" as of {metrics.nav_date}" if metrics.nav_date else ""
         lines.append(f"NAV: \u20b9{metrics.nav:.2f}{date_str}")
         if metrics.nav_source_url:
             lines.append(f"NAV Source: {metrics.nav_source_url}")
+    else:
+        lines.append(f"NAV: {NAV_UNAVAILABLE_FOR_USER}")
     if metrics.aum_cr is not None:
         lines.append(f"AUM: \u20b9{metrics.aum_cr:,.0f} crore")
     if metrics.rating:

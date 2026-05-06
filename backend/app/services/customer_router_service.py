@@ -361,6 +361,10 @@ async def _generate_customer_response(
     if intent == "hybrid_query":
         metrics = _try_metrics_lookup(user_message)
         if metrics is not None:
+            nav_citation: CitationSource | None = None
+            if _is_nav_metric_query(user_message):
+                metrics, nav_citation = await _try_live_nav_enrichment(metrics)
+                metadata["nav_enriched"] = nav_citation is not None
             result = await compose_hybrid_answer(
                 query=user_message,
                 metrics=metrics,
@@ -368,6 +372,10 @@ async def _generate_customer_response(
                 intent=intent,
                 settings=settings,
             )
+            if nav_citation and all(
+                c.source_url != nav_citation.source_url for c in result.citations
+            ):
+                result.citations.append(nav_citation)
             _log_done(session_id, intent, result, t0)
             metadata = _with_answer_metadata(metadata, result)
             return result.answer, result.citations, metadata

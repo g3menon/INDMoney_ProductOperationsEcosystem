@@ -44,6 +44,41 @@ _STOP_TOKENS = frozenset(
 )
 
 
+def nav_lookup_candidate_names(fund_name: str) -> list[str]:
+    """Return fund name variants to try against AMFI scheme names.
+
+    Groww labels sometimes differ from AMFI's official scheme text (e.g. HDFC
+    Flexi Cap vs legacy ``HDFC Equity Fund`` naming).
+    """
+    name = fund_name.strip()
+    if not name:
+        return []
+    candidates: list[str] = [name]
+    lower = name.lower()
+
+    if "hdfc" in lower and "flexi" in lower and "cap" in lower:
+        alt = re.sub(
+            r"HDFC\s+Flexi\s+Cap\s+Direct\s+Plan\s+Growth",
+            "HDFC Equity Fund - Direct Plan - Growth",
+            name,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if alt not in candidates:
+            candidates.append(alt)
+        alt2 = re.sub(
+            r"HDFC\s+Flexi\s+Cap\s+Direct\s+Plan",
+            "HDFC Equity Fund - Direct Plan",
+            name,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+        if alt2 not in candidates:
+            candidates.append(alt2)
+
+    return candidates
+
+
 @dataclass(frozen=True)
 class MFNavLookupResult:
     scheme_code: str
@@ -55,7 +90,8 @@ class MFNavLookupResult:
 
 async def lookup_latest_nav(fund_name: str) -> MFNavLookupResult | None:
     """Find the latest NAV for a fund name from AMFI's NAVAll.txt report."""
-    if not fund_name.strip():
+    candidates = nav_lookup_candidate_names(fund_name)
+    if not candidates:
         return None
     try:
         text = await _fetch_amfi_nav_text()
@@ -65,17 +101,25 @@ async def lookup_latest_nav(fund_name: str) -> MFNavLookupResult | None:
             extra={"fund_name": fund_name[:80], "error": str(exc)[:160]},
         )
         return None
-    result = find_latest_nav_in_amfi_text(fund_name=fund_name, nav_text=text)
+    for cand in candidates:
+        result = find_latest_nav_in_amfi_text(fund_name=cand, nav_text=text)
+        if result is not None:
+            logger.info(
+                "mf_nav_lookup_done",
+                extra={
+                    "fund_name": fund_name[:80],
+                    "tried_as": cand[:80],
+                    "matched": True,
+                    "scheme_code": result.scheme_code,
+                    "nav_date": result.nav_date,
+                },
+            )
+            return result
     logger.info(
         "mf_nav_lookup_done",
-        extra={
-            "fund_name": fund_name[:80],
-            "matched": bool(result),
-            "scheme_code": result.scheme_code if result else None,
-            "nav_date": result.nav_date if result else None,
-        },
+        extra={"fund_name": fund_name[:80], "matched": False},
     )
-    return result
+    return None
 
 
 async def _fetch_amfi_nav_text() -> str:

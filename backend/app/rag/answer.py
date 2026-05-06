@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from app.rag.public_messages import NAV_UNAVAILABLE_FOR_USER
 from app.schemas.rag import CitationSource, MFFundMetrics, ScoredChunk
 
 if TYPE_CHECKING:
@@ -60,9 +61,6 @@ _METRIC_FIELD_GROUPS: list[tuple[frozenset[str], str]] = [
     (frozenset(["rating", "star rating", "crisil", "morningstar"]), "rating"),
 ]
 _UNAVAILABLE = "not available in the current indexed source data"
-_NAV_UNAVAILABLE = (
-    "NAV data is currently being updated. Please check groww.in for the latest NAV."
-)
 
 
 @dataclass
@@ -227,7 +225,7 @@ def _render_field_lines(metrics: MFFundMetrics, fields: list[str]) -> list[str]:
             if metrics.nav_source_url:
                 lines.append(f"NAV Source: {metrics.nav_source_url}")
         else:
-            lines.append(f"NAV: {_NAV_UNAVAILABLE}")
+            lines.append(f"NAV: {NAV_UNAVAILABLE_FOR_USER}")
 
     if "aum" in fields:
         if metrics.aum_cr is not None:

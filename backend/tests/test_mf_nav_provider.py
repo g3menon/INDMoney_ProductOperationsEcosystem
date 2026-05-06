@@ -6,6 +6,8 @@ from app.integrations.mf_nav_provider import (
     AMFI_NAV_URL,
     MFNavLookupResult,
     find_latest_nav_in_amfi_text,
+    lookup_latest_nav,
+    nav_lookup_candidate_names,
 )
 from app.rag.mf_extractor import extract_from_html
 from app.rag.answer import compose_structured_answer
@@ -31,6 +33,55 @@ def test_amfi_nav_parser_prefers_direct_growth_scheme() -> None:
     assert result.scheme_code == "100002"
     assert result.nav == 123.4567
     assert result.nav_date == "2025-04-25"
+
+
+def test_nav_lookup_adds_hdfc_equity_alias_for_flexi_cap_label() -> None:
+    names = nav_lookup_candidate_names("HDFC Flexi Cap Direct Plan Growth")
+    assert "HDFC Flexi Cap Direct Plan Growth" in names
+    assert any("Equity Fund" in n for n in names)
+
+
+def test_amfi_row_named_hdfc_equity_matches_via_alias_query() -> None:
+    """AMFI often keeps legacy ``HDFC Equity Fund`` wording for the flexi-cap scheme."""
+    nav_text = "\n".join(
+        [
+            "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date",
+            "119551;-;-;HDFC Equity Fund - Direct Plan - Growth;1845.3200;25-Apr-2025",
+        ]
+    )
+    groww_style = find_latest_nav_in_amfi_text(
+        fund_name="HDFC Flexi Cap Direct Plan Growth",
+        nav_text=nav_text,
+    )
+    assert groww_style is None
+    alias = find_latest_nav_in_amfi_text(
+        fund_name="HDFC Equity Fund - Direct Plan - Growth",
+        nav_text=nav_text,
+    )
+    assert alias is not None
+    assert alias.nav == 1845.32
+
+
+@pytest.mark.asyncio
+async def test_lookup_latest_nav_falls_back_to_hdfc_equity_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    nav_text = "\n".join(
+        [
+            "Scheme Code;ISIN Div Payout/ ISIN Growth;ISIN Div Reinvestment;Scheme Name;Net Asset Value;Date",
+            "119551;-;-;HDFC Equity Fund - Direct Plan - Growth;1845.3200;25-Apr-2025",
+        ]
+    )
+
+    async def _fake_fetch() -> str:
+        return nav_text
+
+    monkeypatch.setattr(
+        "app.integrations.mf_nav_provider._fetch_amfi_nav_text",
+        _fake_fetch,
+    )
+    result = await lookup_latest_nav("HDFC Flexi Cap Direct Plan Growth")
+    assert result is not None
+    assert result.scheme_code == "119551"
+    assert result.nav == 1845.32
 
 
 @pytest.mark.asyncio
