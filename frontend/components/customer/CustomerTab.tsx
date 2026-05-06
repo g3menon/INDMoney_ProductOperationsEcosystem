@@ -3,13 +3,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BookingCard, type BookingSummary } from "@/components/customer/BookingCard";
-import { ChatHistory } from "@/components/customer/ChatHistory";
-import type { ChatMessage } from "@/components/customer/ChatPanel";
+import { ChatPanel, type ChatMessage } from "@/components/customer/ChatPanel";
 import { FALLBACK_PROMPTS, PromptChips, type PromptChip } from "@/components/customer/PromptChips";
+import { SendIcon } from "@/components/customer/SendIcon";
 import { VoiceControls } from "@/components/customer/VoiceControls";
 import { LoadingState } from "@/components/shared/LoadingState";
+import { loadChatSessionIndex, upsertChatSessionFromMessages, type ChatSessionSummary } from "@/lib/chat-sessions-storage";
 import { fetchJson, type ApiEnvelope } from "@/lib/api-client";
 import { BOOKING_REASONS, CURATED_CUSTOMER_PROMPTS, SUPPORTED_FUNDS, type BookingReason } from "@/lib/customer-config";
+import { isFundComparisonPrompt } from "@/lib/fund-comparison-guard";
+import { formatShortIso } from "@/lib/formatters";
 
 type ChatMessageResult = {
   session_id: string;
@@ -92,7 +95,9 @@ function derivePulsePrompts(pulse: WeeklyPulse | null): string[] {
   if (themeText.includes("sip") || themeText.includes("mandate")) prompts.unshift("I'm facing SIP or mandate issues");
   if (themeText.includes("tax") || themeText.includes("statement")) prompts.unshift("Help me with statements and tax docs");
   if (themeText.includes("kyc")) prompts.unshift("Book an advisor for KYC help");
-  return Array.from(new Set(prompts)).slice(0, 9);
+  return Array.from(new Set(prompts))
+    .filter((p) => !isFundComparisonPrompt(p))
+    .slice(0, 9);
 }
 
 function getSpeechRecognitionCtor() {
@@ -107,7 +112,7 @@ function getSpeechRecognitionCtor() {
 export function CustomerTab() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [chips, setChips] = useState<PromptChip[]>(FALLBACK_PROMPTS);
+  const [chips, setChips] = useState<PromptChip[]>(FALLBACK_PROMPTS.filter((c) => !isFundComparisonPrompt(c.prompt)));
   const [promptIssue, setPromptIssue] = useState(false);
 
   const [input, setInput] = useState("");
@@ -129,6 +134,7 @@ export function CustomerTab() {
   const [bookingBusy, setBookingBusy] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [lastBooking, setLastBooking] = useState<BookingDetail | null>(null);
+  const [pastSessions, setPastSessions] = useState<ChatSessionSummary[]>([]);
 
   const availableSlots = useMemo(() => buildSlots(), []);
 
@@ -144,6 +150,22 @@ export function CustomerTab() {
     }
   }, []);
 
+  const refreshPastSessions = useCallback(() => {
+    setPastSessions(loadChatSessionIndex());
+  }, []);
+
+  const switchSession = useCallback(
+    async (id: string) => {
+      if (id === sessionId || sending) return;
+      setBookingOpen(false);
+      window.localStorage.setItem(STORAGE_KEY, id);
+      setSessionId(id);
+      await loadHistory(id);
+      refreshPastSessions();
+    },
+    [sessionId, sending, loadHistory, refreshPastSessions],
+  );
+
   useEffect(() => {
     const existing = window.localStorage.getItem(STORAGE_KEY);
     if (existing && existing.trim().length > 0) {
@@ -151,7 +173,14 @@ export function CustomerTab() {
       void loadHistory(existing);
     }
     setVoiceUnsupported(!getSpeechRecognitionCtor());
-  }, [loadHistory]);
+    refreshPastSessions();
+  }, [loadHistory, refreshPastSessions]);
+
+  useEffect(() => {
+    if (!sessionId || messages.length === 0) return;
+    upsertChatSessionFromMessages(sessionId, messages);
+    refreshPastSessions();
+  }, [sessionId, messages, refreshPastSessions]);
 
   const loadPrompts = useCallback(async () => {
     try {
@@ -159,13 +188,20 @@ export function CustomerTab() {
         fetchJson<PromptChip[]>("/api/v1/chat/prompts").catch(() => null),
         fetchJson<WeeklyPulse | null>("/api/v1/pulse/current").catch(() => null),
       ]);
-      const backendPrompts = ((promptResponse?.data ?? []) as PromptChip[]).filter(Boolean);
-      const pulsePrompts = derivePulsePrompts(pulseResponse?.data ?? null).map(promptFromText);
-      const merged = [...pulsePrompts, ...backendPrompts].slice(0, 10);
-      setChips(merged.length > 0 ? merged : FALLBACK_PROMPTS);
+      const backendPrompts = ((promptResponse?.data ?? []) as PromptChip[])
+        .filter(Boolean)
+        .filter((c) => !isFundComparisonPrompt(c.prompt) && !isFundComparisonPrompt(c.label));
+      const pulsePrompts = derivePulsePrompts(pulseResponse?.data ?? null)
+        .map(promptFromText)
+        .filter((c) => !isFundComparisonPrompt(c.prompt) && !isFundComparisonPrompt(c.label));
+      const merged = [...pulsePrompts, ...backendPrompts]
+        .filter((c) => !isFundComparisonPrompt(c.prompt))
+        .slice(0, 10);
+      const safeFallback = FALLBACK_PROMPTS.filter((c) => !isFundComparisonPrompt(c.prompt));
+      setChips(merged.length > 0 ? merged : safeFallback);
       setPromptIssue(!promptResponse && !pulseResponse);
     } catch {
-      setChips(FALLBACK_PROMPTS);
+      setChips(FALLBACK_PROMPTS.filter((c) => !isFundComparisonPrompt(c.prompt)));
       setPromptIssue(true);
     }
   }, []);
@@ -191,7 +227,8 @@ export function CustomerTab() {
     setSendError(null);
     setLastBooking(null);
     setBookingOpen(false);
-  }, []);
+    refreshPastSessions();
+  }, [refreshPastSessions]);
 
   const appendAssistant = useCallback((content: string, booking?: BookingSummary) => {
     setMessages((current) => [
@@ -447,9 +484,144 @@ export function CustomerTab() {
         </div>
       </section>
 
-      {loadingHistory ? <LoadingState label="Restoring conversation" /> : null}
+      <section className="soft-card p-4 md:p-5">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-stretch">
+          <aside className="shrink-0 lg:w-56 lg:border-r lg:border-groww-border lg:pr-4">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-groww-faint">Chat history</h3>
+            <p className="mt-1 text-[11px] leading-4 text-groww-muted">Open a past conversation from this browser.</p>
+            <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1 lg:max-h-[min(58vh,540px)]">
+              {pastSessions.length === 0 ? (
+                <p className="text-xs text-groww-muted">No saved threads yet. Messages are kept after you start chatting.</p>
+              ) : (
+                pastSessions.map((row) => {
+                  const active = row.id === sessionId;
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      disabled={sending || bookingBusy}
+                      onClick={() => void switchSession(row.id)}
+                      className={
+                        active
+                          ? "focus-ring w-full rounded-xl border border-groww-accent bg-groww-accentSoft px-3 py-2.5 text-left shadow-sm transition"
+                          : "focus-ring w-full rounded-xl border border-groww-border bg-white px-3 py-2.5 text-left shadow-sm transition hover:border-groww-accent/40"
+                      }
+                    >
+                      <span className="line-clamp-2 text-xs font-medium text-groww-text">{row.preview}</span>
+                      <span className="mt-1 block text-[10px] text-groww-faint">{formatShortIso(row.updatedAt)}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
 
-      <ChatHistory messages={messages} disabled={sending || bookingBusy} isSending={sending} onNewChat={clearChat} />
+          <div className="min-w-0 flex-1 flex flex-col gap-4 border-t border-groww-border pt-5 lg:border-l-0 lg:border-t-0 lg:pt-0 lg:pl-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-groww-text">Conversation</h3>
+                <p className="mt-1 text-xs text-groww-muted">Your thread continues until you start a new chat.</p>
+              </div>
+              <button
+                type="button"
+                className="focus-ring rounded-full border border-groww-border bg-white px-3 py-2 text-xs font-semibold text-groww-muted hover:text-groww-accent disabled:opacity-50"
+                onClick={clearChat}
+                disabled={sending || bookingBusy}
+              >
+                New chat
+              </button>
+            </div>
+
+            <div className="relative min-h-[280px]">
+              {loadingHistory ? (
+                <div className="absolute inset-0 z-10 flex items-center justify-center rounded-2xl bg-white/80 backdrop-blur-[2px]">
+                  <LoadingState label="Loading conversation" />
+                </div>
+              ) : null}
+              {messages.length === 0 && !sending && !loadingHistory ? (
+                <div className="flex min-h-[220px] items-center justify-center rounded-2xl border border-dashed border-groww-border bg-groww-surfaceSoft/40 px-4 py-10 text-center text-sm text-groww-muted">
+                  Start with a suggestion above or type a question below.
+                </div>
+              ) : (
+                <ChatPanel messages={messages} isSending={sending} />
+              )}
+            </div>
+
+            <div className="border-t border-groww-border pt-4">
+              <div className="mb-3 flex flex-wrap gap-2">
+                {chips
+                  .filter((c) => !isFundComparisonPrompt(c.prompt))
+                  .slice(0, 6)
+                  .map((chip) => (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      className="pill-chip"
+                      onClick={() => void sendMessage(chip.prompt)}
+                      disabled={sending}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+              </div>
+              <label htmlFor="customer-composer" className="sr-only">
+                Ask Groww AI
+              </label>
+              <div
+                className={
+                  voiceActive
+                    ? "rounded-2xl border border-groww-accent bg-white p-3 shadow-card"
+                    : "rounded-2xl border border-groww-border bg-white p-3 shadow-sm"
+                }
+              >
+                <textarea
+                  id="customer-composer"
+                  value={voiceInterim ? `${input}${input.trim() ? " " : ""}${voiceInterim}` : input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="Ask about NAV, fees, mutual fund basics, or booking an advisor..."
+                  className="min-h-[88px] w-full resize-none bg-transparent px-2 py-2 text-sm leading-6 text-groww-text placeholder:text-groww-faint focus:outline-none"
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (canSend) void sendMessage(input);
+                    }
+                  }}
+                />
+                <div className="flex items-center justify-between gap-3 border-t border-groww-border pt-3">
+                  <div className="flex items-center gap-2">
+                    <VoiceControls active={voiceActive} unsupported={voiceUnsupported} onToggle={toggleVoice} />
+                    {voiceActive ? <span className="text-xs font-semibold text-groww-accent">Listening continuously</span> : null}
+                    {voiceUnsupported ? <span className="text-xs text-groww-faint">Voice unavailable</span> : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button type="button" className="pill-chip" onClick={() => startBooking()} disabled={sending}>
+                      Book advisor
+                    </button>
+                    <button
+                      type="button"
+                      className="focus-ring flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-groww-accent text-white shadow-card transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => void sendMessage(input)}
+                      disabled={!canSend}
+                      aria-label="Send message"
+                    >
+                      {sending ? (
+                        <span className="text-xs font-semibold" aria-hidden>
+                          …
+                        </span>
+                      ) : (
+                        <SendIcon className="h-5 w-5" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {voiceError ? <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">{voiceError}</p> : null}
+              {sendError ? <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{sendError}</p> : null}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {bookingOpen ? (
         <section className="soft-card p-5">
@@ -541,58 +713,6 @@ export function CustomerTab() {
           ) : null}
         </section>
       ) : null}
-
-      <section className="soft-card p-3 md:p-4">
-        <div className="mb-3 flex flex-wrap gap-2">
-          {chips.slice(0, 6).map((chip) => (
-            <button key={chip.id} type="button" className="pill-chip" onClick={() => void sendMessage(chip.prompt)} disabled={sending}>
-              {chip.label}
-            </button>
-          ))}
-        </div>
-        <label htmlFor="customer-composer" className="sr-only">
-          Ask Groww AI
-        </label>
-        <div className={voiceActive ? "rounded-2xl border border-groww-accent bg-white p-3 shadow-card" : "rounded-2xl border border-groww-border bg-white p-3 shadow-sm"}>
-          <textarea
-            id="customer-composer"
-            value={voiceInterim ? `${input}${input.trim() ? " " : ""}${voiceInterim}` : input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask about NAV, fees, fund comparisons, or booking an advisor..."
-            className="min-h-[88px] w-full resize-none bg-transparent px-2 py-2 text-sm leading-6 text-groww-text placeholder:text-groww-faint focus:outline-none"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                if (canSend) void sendMessage(input);
-              }
-            }}
-          />
-          <div className="flex items-center justify-between gap-3 border-t border-groww-border pt-3">
-            <div className="flex items-center gap-2">
-              <VoiceControls active={voiceActive} unsupported={voiceUnsupported} onToggle={toggleVoice} />
-              {voiceActive ? <span className="text-xs font-semibold text-groww-accent">Listening continuously</span> : null}
-              {voiceUnsupported ? <span className="text-xs text-groww-faint">Voice unavailable</span> : null}
-            </div>
-            <div className="flex items-center gap-2">
-              <button type="button" className="pill-chip" onClick={() => startBooking()} disabled={sending}>
-                Book advisor
-              </button>
-              <button
-                type="button"
-                className="focus-ring flex h-11 w-11 items-center justify-center rounded-full bg-groww-accent text-lg font-semibold text-white shadow-card transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
-                onClick={() => void sendMessage(input)}
-                disabled={!canSend}
-                aria-label="Send message"
-              >
-                {sending ? "..." : ">"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {voiceError ? <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-700">{voiceError}</p> : null}
-        {sendError ? <p className="mt-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700">{sendError}</p> : null}
-      </section>
 
       <section className="soft-card p-5">
         <h3 className="text-sm font-semibold text-groww-text">Advisor booking shortcuts</h3>

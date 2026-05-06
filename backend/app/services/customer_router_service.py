@@ -23,6 +23,7 @@ Backward compatibility:
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -44,6 +45,49 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DISCLAIMER = "This is general information only, not personalised financial advice."
+
+_FUND_COMPARISON_SKIP_INTENTS = frozenset(
+    {
+        "booking_intent",
+        "product_review_query",
+        "trend_query",
+        "issue_diagnosis_query",
+    }
+)
+
+_COMPARISON_PHRASE = re.compile(
+    r"\b(compare|comparing|comparison|versus|vs\.?)\b|"
+    r"\bwhich\s+(fund|one|scheme|option)\s+(is\s+)?(better|best)\b|"
+    r"\bwhich\s+fund\s+should\s+i\b",
+    re.IGNORECASE,
+)
+
+_FUND_LIKE = re.compile(
+    r"\b(mutual\s+funds?|\bfund\b|sip\b|scheme\b|direct\s+plan|"
+    r"hdfc|motilal|flexi\s*cap|mid\s*cap|large\s*cap|"
+    r"index\s+fund|\betf\b|nifty|nav\b|aum\b|growth\b)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_fund_comparison_request(message: str, intent: str) -> bool:
+    """True when the user is asking the assistant to compare schemes or pick a winner."""
+    if intent in _FUND_COMPARISON_SKIP_INTENTS:
+        return False
+    if not _COMPARISON_PHRASE.search(message):
+        return False
+    lower = message.lower()
+    if "play store" in lower or "playstore" in lower or "app review" in lower:
+        return False
+    return bool(_FUND_LIKE.search(message))
+
+
+_FUND_COMPARISON_DISCLAIMER = (
+    "I'm not able to compare specific mutual funds or schemes, or say which one is better for you—that needs a "
+    "personalised discussion with a qualified advisor. I can still explain general concepts (for example NAV, fees, "
+    "how mutual funds work) or help you book time with a Groww advisor. "
+    f"{_DISCLAIMER}"
+)
 
 _BOOKING_RESPONSE = (
     "To book an advisor appointment, please share: (1) your preferred date/time window, "
@@ -254,6 +298,14 @@ async def _generate_customer_response(
             extra={"session_id": session_id, "fallback": "policy_response", "reason": intent},
         )
         return DISALLOWED_RESPONSES[intent], [], metadata
+
+    if _is_fund_comparison_request(user_message, intent):
+        metadata.update({"fallback_used": True, "fallback_reason": "fund_comparison_disclaimer"})
+        logger.info(
+            "fund_comparison_disclaimer",
+            extra={"session_id": session_id, "intent": intent},
+        )
+        return _FUND_COMPARISON_DISCLAIMER, [], metadata
 
     # ── 2. Booking intent ────────────────────────────────────────────────
     if intent == "booking_intent":

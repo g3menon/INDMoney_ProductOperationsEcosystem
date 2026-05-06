@@ -26,8 +26,8 @@ def get_prompt_chips(_settings: Settings) -> list[PromptChip]:
             prompt="I want to book an advisor appointment. What details do I need to provide?",
         ),
         PromptChip(
-            id="chip-hybrid",
-            label="MF + fees together",
-            prompt="Compare mutual funds on fees and explain what I should look for before investing.",
+            id="chip-fees-before-invest",
+            label="Fees before investing",
+            prompt="What should I check on fees and charges before I invest in a mutual fund?",
         ),
     ]

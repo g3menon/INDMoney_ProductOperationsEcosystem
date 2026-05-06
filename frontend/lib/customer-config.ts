@@ -73,7 +73,6 @@ export const BOOKING_REASONS: BookingReason[] = [
 
 export const CURATED_CUSTOMER_PROMPTS = [
   "What is the NAV of HDFC Flexi Cap Direct Plan Growth?",
-  "Compare expense ratio of Motilal Oswal Midcap Fund Direct Growth and Motilal Oswal Nifty Midcap 150 Index Fund Direct Growth",
   "Explain expense ratio in simple terms",
   "What fees do I pay in a mutual fund?",
   "I need help with withdrawals and timelines",

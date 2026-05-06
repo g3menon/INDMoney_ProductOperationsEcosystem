@@ -1,5 +1,7 @@
 "use client";
 
+import { isFundComparisonPrompt } from "@/lib/fund-comparison-guard";
+
 export type PromptChip = { id: string; label: string; prompt: string };
 
 interface PromptChipsProps {
@@ -15,10 +17,9 @@ export const FALLBACK_PROMPTS: PromptChip[] = [
     prompt: "What is the NAV of HDFC Flexi Cap Direct Plan Growth?",
   },
   {
-    id: "fallback-compare",
-    label: "Active vs passive fees",
-    prompt:
-      "Compare expense ratio of Motilal Oswal Midcap Fund Direct Growth and Motilal Oswal Nifty Midcap 150 Index Fund Direct Growth",
+    id: "fallback-sip-basics",
+    label: "SIP basics",
+    prompt: "What is a SIP and how does it work with mutual funds?",
   },
   {
     id: "fallback-expense",
@@ -38,7 +39,7 @@ export const FALLBACK_PROMPTS: PromptChip[] = [
 ];
 
 export function PromptChips({ chips, disabled, onSend }: PromptChipsProps) {
-  const visibleChips = chips.length > 0 ? chips : FALLBACK_PROMPTS;
+  const visibleChips = (chips.length > 0 ? chips : FALLBACK_PROMPTS).filter((c) => !isFundComparisonPrompt(c.prompt));
 
   return (
     <div className="flex flex-wrap justify-center gap-2">
