@@ -1,3 +1,6 @@
+# Supported: CPython 3.11.x (matches Dockerfile). Use a 3.11 venv locally—
+# do not use 3.14 as `python` on PATH: lxml / greenlet / Playwright pins lack
+# reliable prebuilt wheels on Windows for 3.14 yet.
 fastapi==0.115.6
 uvicorn[standard]==0.32.1
 pydantic-settings==2.6.1

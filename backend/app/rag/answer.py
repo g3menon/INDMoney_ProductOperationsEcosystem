@@ -55,7 +55,7 @@ _METRIC_FIELD_GROUPS: list[tuple[frozenset[str], str]] = [
     (frozenset(["benchmark"]), "benchmark"),
     (frozenset(["rating", "star rating", "crisil", "morningstar"]), "rating"),
 ]
-_UNAVAILABLE = "not yet available (live data requires JS rendering — run mf_extractor with Playwright)"
+_UNAVAILABLE = "not available in the current indexed source data"
 
 
 @dataclass
@@ -657,7 +657,7 @@ async def _call_llm_text(prompt: str, settings: "Settings", tier: str) -> LLMTex
         from app.llm.gemini_client import GeminiClient
 
         client = GeminiClient(settings)
-        fallback_model = "gemini-1.5-flash" if tier != "heavy" else settings.llm_heavy_model
+        fallback_model = settings.gemini_model if tier != "heavy" else settings.llm_heavy_model
         logger.info("llm_call_started", extra={"provider": "gemini", "model": fallback_model, "tier": tier})
         result = await client.generate_text(prompt, model=fallback_model)
         if result:

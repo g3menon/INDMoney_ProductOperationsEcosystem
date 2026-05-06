@@ -63,11 +63,11 @@ class GroqClient:
             key_specific = any(s in msg for s in ("rate", "quota", "billing", "exhaust", "429"))
             if not key_specific:
                 logger.warning(
-                    "groq_generate_text_error",
+                    "groq_generate_text_primary_error_try_fallback",
                     extra={"error": str(exc)[:120], "model": _model},
                 )
-                return None
-            logger.warning("groq_primary_failed_try_fallback", extra={"correlation_id": _cid_var.get()})
+            else:
+                logger.warning("groq_primary_failed_try_fallback", extra={"correlation_id": _cid_var.get()})
             try:
                 c = self._client("fallback")
                 response = c.chat.completions.create(

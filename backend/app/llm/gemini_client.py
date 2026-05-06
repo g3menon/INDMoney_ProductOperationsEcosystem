@@ -33,8 +33,9 @@ class GeminiClient:
             msg = str(exc).lower()
             key_specific = any(s in msg for s in ("rate", "quota", "billing", "exhaust", "429", "resource"))
             if not key_specific:
-                raise
-            logger.warning("gemini_primary_failed_try_fallback", extra={"correlation_id": _cid_var.get()})
+                logger.warning("gemini_primary_error_try_fallback", extra={"correlation_id": _cid_var.get()})
+            else:
+                logger.warning("gemini_primary_failed_try_fallback", extra={"correlation_id": _cid_var.get()})
             self._configure("fallback")
             m = genai.GenerativeModel(model or self._settings.gemini_model)
             resp = m.generate_content(prompt)

@@ -11,11 +11,26 @@ Single-repo dashboard (Next.js + FastAPI + Supabase) for **Groww** product opera
 ## Phase 1 — local smoke
 
 1. Copy `.env.example` to `.env` and fill **backend** `FRONTEND_BASE_URL`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` (use `PHASE1_SKIP_SUPABASE_STARTUP_CHECK=true` only if you intentionally run without Supabase).
-2. From `backend/`: `python -m pip install -r requirements.txt` then `uvicorn app.main:app --reload --port 8000`.
+2. From `backend/`: use a **Python 3.11** virtualenv (same minor as `Dockerfile`), install deps, then run uvicorn — same commands as **Local setup → Python version** / **Start backend**.
 3. From `frontend/`: set `NEXT_PUBLIC_API_BASE_URL` (e.g. `http://127.0.0.1:8000`), then `npm install` and `npm run dev`.
-4. Phase 1 evals: from `backend/`, `python -m app.evals.run_all --phase 1` (must score **≥ 85%**; default fixture env is embedded for CI-style runs).
+4. Phase 1 evals: from `backend/`, `.\.venv\Scripts\python.exe -m app.evals.run_all --phase 1` (must score **≥ 85%**; default fixture env is embedded for CI-style runs).
 
 ## Local setup (Windows PowerShell) — Phase 1 + Phase 2
+
+### Python version (backend / tests)
+
+Use **CPython 3.11.x** for the backend venv so installs and `pytest` match production (`python:3.11-slim`) and pick up prebuilt wheels for native packages (`lxml`, `greenlet`, Playwright). On Windows, if `python` points at 3.14, use the launcher once to create the venv:
+
+```powershell
+cd backend
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
+```
+
+For tests: `cd backend` then `.\.venv\Scripts\python.exe -m pytest`. The file `backend/.python-version` is set to `3.11` for pyenv-style tools.
+
+Automated check (requires `py -3.11` / Python 3.11 installed): from `backend/`, run `.\ensure_python_env.ps1` — it creates or recreates `.venv` with 3.11 if needed and runs `pip install -r requirements.txt`.
 
 ### 0) Apply Supabase schema (one-time per project)
 
@@ -32,8 +47,9 @@ Copy `.env.example` → `.env` and fill at minimum:
 
 ```powershell
 cd backend
-python -m pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+# One-time: py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 ```
 
 Smoke:
@@ -59,15 +75,15 @@ npm run dev
 ```powershell
 cd ..
 cd backend
-python -m playwright install chromium
+.\.venv\Scripts\python.exe -m playwright install chromium
 cd ..
-python scripts\fetch_groww_playstore_reviews.py --limit 200 --out reviews_raw.json
+backend\.venv\Scripts\python.exe scripts\fetch_groww_playstore_reviews.py --limit 200 --out reviews_raw.json
 ```
 
 ### 5) Ingest raw JSON into Supabase (Phase 2)
 
 ```powershell
-python scripts\ingest_sources.py --in reviews_raw.json
+backend\.venv\Scripts\python.exe scripts\ingest_sources.py --in reviews_raw.json
 ```
 
 ### 6) Generate pulse from real ingested data (Phase 2)
@@ -82,6 +98,6 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/pulse/history?limit=10
 
 ```powershell
 cd backend
-python -m app.evals.run_all --phase 1
-python -m app.evals.run_all --phase 2
+.\.venv\Scripts\python.exe -m app.evals.run_all --phase 1
+.\.venv\Scripts\python.exe -m app.evals.run_all --phase 2
 ```
