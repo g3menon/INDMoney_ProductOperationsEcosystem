@@ -49,6 +49,62 @@ class DocumentChunk(BaseModel):
     found_review_helpful: int | None = Field(default=None)
 
 
+class ReviewFilter(BaseModel):
+    """Optional pre-retrieval filter for Play Store review queries."""
+
+    min_rating: int | None = Field(default=None, ge=1, le=5)
+    max_rating: int | None = Field(default=None, ge=1, le=5)
+    date_from: str | None = Field(default=None)   # ISO date string e.g. "2025-01-01"
+    date_to: str | None = Field(default=None)     # ISO date string e.g. "2025-04-30"
+
+
+def build_review_filter(intent: str, query: str) -> ReviewFilter | None:
+    """Return a ReviewFilter if the intent warrants pre-filtering, else None.
+    Applies only to product_review_query and trend_query.
+    Parses simple rating signals ("1-star", "negative") and time signals
+    ("last month", "this quarter", "last 30 days") from the query string.
+    """
+    if intent not in ("product_review_query", "trend_query"):
+        return None
+
+    lower = query.lower()
+    min_r = max_r = None
+    date_from = date_to = None
+
+    # Rating signals
+    if any(k in lower for k in ("1 star", "1-star", "one star")):
+        min_r, max_r = 1, 1
+    elif any(k in lower for k in ("2 star", "2-star", "two star")):
+        min_r, max_r = 2, 2
+    elif any(k in lower for k in ("negative", "bad review", "low rating",
+                                   "critical", "worst")):
+        min_r, max_r = 1, 2
+    elif any(k in lower for k in ("positive", "good review", "high rating")):
+        min_r, max_r = 4, 5
+
+    # Date signals - compute from today
+    from datetime import date, timedelta
+    today = date.today()
+    if "last 7 days" in lower or "this week" in lower:
+        date_from = str(today - timedelta(days=7))
+        date_to = str(today)
+    elif "last 30 days" in lower or "last month" in lower:
+        date_from = str(today - timedelta(days=30))
+        date_to = str(today)
+    elif "last 90 days" in lower or "last quarter" in lower or "this quarter" in lower:
+        date_from = str(today - timedelta(days=90))
+        date_to = str(today)
+
+    if any([min_r, max_r, date_from, date_to]):
+        return ReviewFilter(
+            min_rating=min_r,
+            max_rating=max_r,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    return None
+
+
 class ScoredChunk(BaseModel):
     chunk: DocumentChunk
     score: float = 0.0

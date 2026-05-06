@@ -29,6 +29,7 @@ from app.schemas.rag import DocumentChunk, ScoredChunk
 
 if TYPE_CHECKING:
     from app.core.config import Settings
+    from app.schemas.rag import ReviewFilter
 
 logger = logging.getLogger(__name__)
 
@@ -231,12 +232,14 @@ class SupabaseRAGIndex:
         settings: "Settings",
         top_k: int = 5,
         use_rerank: bool = False,
+        review_filter: "ReviewFilter | None" = None,
     ) -> list[ScoredChunk]:
         result = await self.search_with_metadata(
             query=query,
             settings=settings,
             top_k=top_k,
             use_rerank=use_rerank,
+            review_filter=review_filter,
         )
         return result.chunks
 

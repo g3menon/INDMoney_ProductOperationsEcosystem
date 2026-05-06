@@ -39,6 +39,7 @@ The system combines:
 | G17 | **No hardcoded fallback magic values in production paths.** Default behavior may exist, but fake IDs, fake URLs, fake times, or silent mock fallbacks must not leak into real logic. | Avoids hard-to-find production bugs. |
 | G18 | **Groww Play Store ingestion uses Playwright in server or batch context only.** Do not ship Play Store automation in the Next.js client bundle; pin browser versions in CI; cap concurrency and retries to respect rate limits and provider stability. | Keeps secrets and automation off the public web surface and reduces ban risk. |
 | G19 | **Collected text must pass cleaning then normalization before chunking, indexing, or pulse LLM steps.** Raw Play Store payloads and scraped HTML must be stripped of markup/boilerplate (**cleaning**), then deduped, schema-mapped, and policy-filtered (**normalization**) before chunks hit retrieval indexes or before **theme / pulse** generation runs. | Prevents garbage chunks, duplicate themes, and unstable RAG/pulse quality. |
+| G20 | **Backend runtime is CPython 3.11.x.** Align with `backend/requirements.txt` (which documents supported version) and the backend Docker image. Do **not** assume the system `python` on PATH—especially **3.12+ on Windows (e.g. 3.14)**—for installs, `uvicorn`, or **`pytest`**: wheels for pinned packages (`lxml`, `greenlet`, `playwright`, etc.) may be unavailable, and a bare interpreter may lack transitive deps so imports fail before tests run. **Standard local commands** (from `backend/`): create a **3.11** venv, or use the Windows launcher **`py -3.11 -m pip install -r requirements.txt`** then **`py -3.11 -m pytest tests/ -v`**. CI and contributors must verify backend changes with this runtime. | Keeps installs reproducible, tests meaningful, and local parity with production containers. |
 
 ## UI and UX rules
 
@@ -202,6 +203,7 @@ The system combines:
 | C7 | **Require manual test instructions for each completed phase.** Cursor should leave behind a verifiable path, not just code. | Makes progress testable. |
 | C8 | **Do not accept architecture-breaking convenience shortcuts.** If a shortcut moves domain logic into UI or provider logic into domain services, reject it. | Preserves long-term maintainability. |
 | C9 | **After upgrading `supabase` / `postgrest`, re-audit repository writes.** Grep for **`.insert(` / `.upsert(` / `.update(`** plus **`model_dump(`** touching Supabase payloads; enforce **D10** (`mode="json"` or explicit primitives). Treat **O9** as a symptom-check: if UI shows **Failed to fetch** on PATCH/POST/GET simultaneously, inspect server logs and HTTP status—not only CORS origins. | Prevents regressions that look like “frontend unreachable.” |
+| C10 | **Run backend automated tests with CPython 3.11.** Before reporting “tests pass” or closing backend-heavy work, execute **`pytest`** from `backend/` using the same 3.11 environment as **G20** (venv or `py -3.11`). If tests error at import with missing modules, fix the interpreter and reinstall **`requirements.txt`**—do not treat that as an application regression. | Avoids false negatives when agents use the wrong Python version. |
 
 ## Phase-specific rules
 
@@ -366,6 +368,9 @@ Before closing any phase, verify at least the following:
 - The UI reflects loading, success, and failure honestly.
 - No secrets are hardcoded.
 - Documentation and env examples are updated.
+- **Backend regression suite:** from `backend/`, run **`py -3.11 -m pytest tests/ -v`** (or an equivalent **Python 3.11** venv) after substantive backend or RAG changes; see **G20** and **C10**.
+
+The frontend package (`frontend/package.json`) exposes **`lint`** and app scripts only—there is no **`npm test`** today; rely on **`next lint`** and manual UI checks unless a test script is added to the repo.
 
 ## Recommended latency budgets
 
@@ -400,6 +405,7 @@ Before closing any phase:
 - [ ] No secrets are hardcoded.
 - [ ] Docs reflect actual implementation.
 - [ ] UI states are handled cleanly.
+- [ ] If the phase touched **`backend/`** or shared Python scripts: **`py -3.11 -m pytest tests/`** from `backend/` passes (**G20**, **C10**).
 - [ ] Regression impact has been checked.
 - [ ] Latency impact is acceptable for the phase.
 - [ ] If LLM behavior was introduced or changed, eval coverage was updated.

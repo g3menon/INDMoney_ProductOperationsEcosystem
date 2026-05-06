@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 from app.core.config import Settings
-from app.schemas.rag import DocumentChunk, ScoredChunk
+from app.schemas.rag import DocumentChunk, ReviewFilter, ScoredChunk
 
 logger = logging.getLogger(__name__)
 
@@ -53,37 +53,53 @@ class SupabaseRAGRepository:
                 .execute()
             )
 
-    async def search_bm25(self, query: str, top_k: int) -> list[ScoredChunk]:
+    async def search_bm25(
+        self,
+        query: str,
+        top_k: int,
+        filter: ReviewFilter | None = None,
+    ) -> list[ScoredChunk]:
         """Full-text search over content using Postgres tsvector matching."""
         q = (query or "").strip()
         if not q or top_k <= 0:
             return []
 
+        def _with_review_filter(base: Any) -> Any:
+            if filter is None:
+                return base
+            base = base.filter("doc_type", "eq", "playstore_review")
+            if filter.min_rating is not None:
+                base = base.filter("rating", "gte", filter.min_rating)
+            if filter.max_rating is not None:
+                base = base.filter("rating", "lte", filter.max_rating)
+            if filter.date_from is not None:
+                base = base.filter("review_date", "gte", filter.date_from)
+            if filter.date_to is not None:
+                base = base.filter("review_date", "lte", filter.date_to)
+            return base
+
         def _search() -> Any:
             try:
-                return (
+                sb_query = (
                     self._client.table("rag_chunks")
                     .select("*")
                     .text_search("content", q, config="english")
-                    .limit(top_k)
-                    .execute()
                 )
+                return _with_review_filter(sb_query).limit(top_k).execute()
             except TypeError:
-                return (
+                sb_query = (
                     self._client.table("rag_chunks")
                     .select("*")
                     .text_search("content", q)
-                    .limit(top_k)
-                    .execute()
                 )
+                return _with_review_filter(sb_query).limit(top_k).execute()
             except AttributeError:
-                return (
+                sb_query = (
                     self._client.table("rag_chunks")
                     .select("*")
                     .filter("content", "fts", q)
-                    .limit(top_k)
-                    .execute()
                 )
+                return _with_review_filter(sb_query).limit(top_k).execute()
 
         try:
             res = await asyncio.to_thread(_search)
@@ -99,16 +115,33 @@ class SupabaseRAGRepository:
             scored.append(ScoredChunk(chunk=chunk, score=score))
         return scored
 
-    async def search_embedding(self, query_vector: list[float], top_k: int) -> list[ScoredChunk]:
+    async def search_embedding(
+        self,
+        query_vector: list[float],
+        top_k: int,
+        filter: ReviewFilter | None = None,
+    ) -> list[ScoredChunk]:
         """Cosine similarity search through the match_chunks RPC."""
         if not query_vector or top_k <= 0:
             return []
+
+        rpc_args: dict[str, Any] = {"query_embedding": query_vector, "match_count": top_k}
+        if filter is not None:
+            rpc_args.update(
+                {
+                    "filter_doc_type": "playstore_review",
+                    "filter_min_rating": filter.min_rating,
+                    "filter_max_rating": filter.max_rating,
+                    "filter_date_from": filter.date_from,
+                    "filter_date_to": filter.date_to,
+                }
+            )
 
         try:
             res = await asyncio.to_thread(
                 lambda: self._client.rpc(
                     "match_chunks",
-                    {"query_embedding": query_vector, "match_count": top_k},
+                    rpc_args,
                 ).execute()
             )
         except Exception as exc:
