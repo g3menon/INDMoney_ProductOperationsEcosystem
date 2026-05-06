@@ -9,7 +9,7 @@ Pipeline (Rules P4.1-P4.8, R1-R6, R13):
 4. hybrid_query → try structured metrics lookup:
      - fund matched → compose_hybrid_answer (metrics + RAG chunks → Gemini)
      - fund not matched → RAG-only path
-5. mf_query / fee_query → hybrid RAG retrieval → grounded answer.
+5. mutual_fund_info_query / fee_query → hybrid RAG retrieval → grounded answer.
 6. Weak retrieval (no hits) → safe fallback (R1, P4.3).
 
 Returns (assistant_text, citations) so the API layer can carry citations to
@@ -36,6 +36,7 @@ from app.rag.answer import (
 from app.rag.metrics_store import get_metrics_store
 from app.rag.retrieve import get_rag_index
 from app.schemas.rag import CitationSource, MFFundMetrics
+from app.services.pulse_theme_cache import get_active_themes
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -49,6 +50,23 @@ _BOOKING_RESPONSE = (
     "(2) your mutual fund or fee question or goal, and (3) your timezone (we default to IST). "
     f"I will help you proceed with the booking flow. {_DISCLAIMER}"
 )
+
+def _build_booking_greeting(themes: list) -> str:
+    """Build a theme-aware greeting for booking_intent.
+    Falls back to static _BOOKING_RESPONSE if no themes are available."""
+    if not themes:
+        return _BOOKING_RESPONSE
+    top_theme = getattr(themes[0], "theme", None)
+    if not top_theme:
+        return _BOOKING_RESPONSE
+    return (
+        f"I can help you book a call with a Groww advisor. "
+        f"I noticed many users are currently asking about {top_theme} — "
+        f"I can make sure your advisor is briefed on this when you connect. "
+        f"What topic would you like to discuss, and when are you available? "
+        f"{_DISCLAIMER}"
+    )
+
 
 _CLARIFY_FUND = (
     "I can look up that metric directly. Could you tell me which mutual fund you are "
@@ -78,6 +96,28 @@ def _phase3_fallback(user_message: str) -> str:
         )
     if any(k in lower for k in ["book", "booking", "advisor", "appointment", "schedule", "slot"]):
         return _BOOKING_RESPONSE
+    if any(k in lower for k in ["review", "reviews", "complaint", "feedback",
+                                 "user feedback", "play store", "playstore",
+                                 "rating", "1 star", "2 star"]):
+        return (
+            "I can help analyse Play Store reviews and user feedback. "
+            "The review index is currently being loaded — please try again in a moment. "
+            f"{_DISCLAIMER}"
+        )
+    if any(k in lower for k in ["trend", "trending", "rising", "spike",
+                                 "more than last", "compared to", "month on month"]):
+        return (
+            "I can help with trend analysis across review periods. "
+            "The review index is currently loading — please try again shortly. "
+            f"{_DISCLAIMER}"
+        )
+    if any(k in lower for k in ["why", "root cause", "crash", "regression",
+                                 "what changed", "version", "after update"]):
+        return (
+            "I can help diagnose product issues from review data and version history. "
+            "The review index is loading — please try again in a moment. "
+            f"{_DISCLAIMER}"
+        )
     return (
         "I can help with mutual fund questions or fee/expense explanations. "
         f"What are you looking for—mutual fund basics, or fees/expense ratio? {_DISCLAIMER}"
@@ -160,7 +200,24 @@ async def _generate_customer_response(
 
     # ── 2. Booking intent ────────────────────────────────────────────────
     if intent == "booking_intent":
-        return _BOOKING_RESPONSE, [], metadata
+        try:
+            import asyncio
+            themes = await asyncio.wait_for(
+                asyncio.to_thread(get_active_themes, settings),
+                timeout=0.5,
+            )
+        except Exception:
+            themes = []
+        greeting = _build_booking_greeting(themes)
+        logger.info(
+            "booking_greeting_enriched",
+            extra={
+                "session_id": session_id,
+                "theme_used": getattr(themes[0], "theme", "none") if themes else "none",
+                "themes_available": len(themes),
+            },
+        )
+        return greeting, [], metadata
 
     # ── 2.5 Clarify ambiguous metric questions (metric asked, fund missing) ──
     # Example: "What is the expense ratio?" should ask WHICH fund; whereas
@@ -268,7 +325,8 @@ async def _generate_customer_response(
             return result.answer, result.citations, metadata
         # No fund match → fall through to standard RAG answer below.
 
-    # ── 6. mf_query / fee_query / unmatched hybrid → grounded RAG ────────
+    # ── 6. mutual_fund_info_query / fee_query / product_review_query /
+    #       trend_query / issue_diagnosis_query / unmatched hybrid → grounded RAG ──
     result = await compose_grounded_answer(
         query=user_message,
         chunks=chunks,

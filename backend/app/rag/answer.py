@@ -19,15 +19,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 from app.schemas.rag import CitationSource, MFFundMetrics, ScoredChunk
-from app.utils.input_sanitize import sanitize_user_query
 
 if TYPE_CHECKING:
     from app.core.config import Settings
@@ -36,7 +32,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DISCLAIMER = "This is general information only, not personalised financial advice."
-_LAST_UPDATED_PREFIX = "Last updated from sources:"
 _MAX_CONTEXT_CHARS = 2400
 _MAX_CHUNKS_FOR_ANSWER = 5
 _CONTEXT_TOKEN_BUDGET = 2000
@@ -107,10 +102,29 @@ def _build_citations(chunks: list[ScoredChunk]) -> list[CitationSource]:
 
 
 def _safe_fallback(intent: str, query: str, reason: str) -> AnswerResult:
-    if intent in ("mf_query", "direct_metric_query"):
+    if intent in ("mutual_fund_info_query", "direct_metric_query"):
         msg = (
             "I can help with mutual fund questions. Could you be more specific about "
             "what you want to know—fund category, performance comparison, or something else? "
+            f"{_DISCLAIMER}"
+        )
+    elif intent == "product_review_query":
+        msg = (
+            "I can look up Play Store reviews and user feedback for this topic. "
+            "Try rephrasing with a specific feature or time period — for example: "
+            "'What do users say about the onboarding flow in recent reviews?' "
+            f"{_DISCLAIMER}"
+        )
+    elif intent == "trend_query":
+        msg = (
+            "I can help with trend analysis across review periods. "
+            "Try a question like: 'Are complaints about UPI rising this quarter?' "
+            f"{_DISCLAIMER}"
+        )
+    elif intent == "issue_diagnosis_query":
+        msg = (
+            "I can help diagnose product issues from review data. "
+            "Try asking: 'Why are crash reports increasing since version 5.2?' "
             f"{_DISCLAIMER}"
         )
     elif intent in ("fee_query",):
@@ -455,7 +469,7 @@ async def compose_hybrid_answer(
         log_cache_miss(intent)
 
     used_chunks = _select_chunks_for_llm(chunks or [], settings)
-    context_parts, approx_tokens = _build_context_window(
+    context_parts, approx_tokens = _build_hybrid_context_window(
         used_chunks,
         token_budget=_CONTEXT_TOKEN_BUDGET,
         chunk_char_limit=500,
@@ -573,6 +587,36 @@ def _build_context_window(
             continue
 
         # Truncate THIS chunk to fit remaining budget and stop (Guardrail 2).
+        remaining = token_budget - approx_total
+        truncated_body = _truncate_to_token_budget(part, remaining_tokens=remaining)
+        truncated_body = truncated_body.strip()
+        if truncated_body:
+            context_parts.append(truncated_body)
+            approx_total = token_budget
+        break
+
+    return context_parts, approx_total
+
+
+def _build_hybrid_context_window(
+    chunks: list[ScoredChunk],
+    token_budget: int,
+    chunk_char_limit: int,
+) -> tuple[list[str], int]:
+    context_parts: list[str] = []
+    approx_total = 0
+
+    for sc in chunks:
+        limit = max(200, int(chunk_char_limit))
+        chunk_text = (sc.chunk.content or "")[:limit]
+        part = f"[Source: {sc.chunk.title} | Type: {sc.chunk.doc_type}]\n{chunk_text}"
+        part_tokens = _approx_tokens(part)
+
+        if approx_total + part_tokens <= token_budget:
+            context_parts.append(part)
+            approx_total += part_tokens
+            continue
+
         remaining = token_budget - approx_total
         truncated_body = _truncate_to_token_budget(part, remaining_tokens=remaining)
         truncated_body = truncated_body.strip()

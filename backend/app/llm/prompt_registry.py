@@ -43,22 +43,34 @@ def weekly_pulse_prompt(theme_json: str) -> str:
 # ---------------------------------------------------------------------------
 
 _RAG_SYSTEM_INSTRUCTIONS = (
-    "You are a helpful assistant for Groww customers.\n"
-    "Answer ONLY using the provided source passages.\n"
-    "Do NOT invent facts, fund details, or figures not in the sources.\n"
-    "Keep your answer to 3 sentences maximum. Use short, clear sentences.\n"
-    "Never recommend a specific mutual fund to a user. Refuse and link "
-    "to https://support.groww.in instead.\n"
-    "Never make performance claims, predict returns, or compare historical "
-    "performance across funds.\n"
-    "If sources lack information, say so clearly. Do not guess.\n"
-    "End every response with: 'Last updated from sources: {source_date}' "
-    "where {source_date} is the value of the source_date argument below.\n"
-    "This is general information only, not personalised financial advice.\n"
+    "You are a helpful assistant for Groww customers. "
+    "Answer ONLY using the provided source passages. "
+    "Do NOT invent fees, fund details, or facts not present in the sources. "
+    "If the sources do not contain enough information, say so clearly. "
+    "Keep answers concise (3-6 sentences or a short list). "
+    "End every response with: 'This is general information only, not personalised financial advice.'"
+)
+
+_HYBRID_SYSTEM_INSTRUCTIONS = (
+    "You have two types of source material:\n"
+    "- Factsheet data (doc_type: mutual_fund_page): fund-specific figures like\n"
+    "  expense ratio %, exit load %, NAV, AUM.\n"
+    "- Fee explainer content (doc_type: fee_explainer or rag_chunk): regulatory\n"
+    "  logic, charging rules, calculation methods, examples.\n\n"
+    "Compose a unified answer in EXACTLY 6 bullet points:\n"
+    "• Bullet 1-2: Key figures from factsheet data (cite the Factsheet source inline)\n"
+    "• Bullet 3-4: Why/how the fee works from explainer content (cite the Explainer source inline)\n"
+    "• Bullet 5: Combined implication for the user's query\n"
+    "• Bullet 6: Standard disclaimer\n\n"
+    "If only one source type is present, use it for all factual points.\n"
+    "If both source types are present, cite each inline as:\n"
+    "  (Source: {title})\n"
+    "Never invent figures. If a figure is unavailable, write 'not available in source'.\n"
+    "End every response with the standard disclaimer."
 )
 
 _INTENT_CONTEXT: dict[str, str] = {
-    "mf_query": "The customer is asking about mutual fund details (categories, strategies, suitability).",
+    "mutual_fund_info_query": "The customer is asking about mutual fund details (categories, strategies, suitability).",
     "fee_query": "The customer is asking about mutual fund fees: expense ratio, exit load, or cost comparison.",
     "hybrid_query": (
         "The customer is asking about both mutual fund details AND fees. "
@@ -76,7 +88,6 @@ def rag_answer_prompt(
     query: str,
     context_blocks: list[str],
     intent: str,
-    source_date: str,
 ) -> str:
     """Build a bounded RAG answer prompt (Rules R3, R14).
 
@@ -85,13 +96,11 @@ def rag_answer_prompt(
         context_blocks: List of strings like "[Source: Title]\nchunk text...".
         intent: Classified intent label for extra instruction context.
     """
-    system_instructions = _RAG_SYSTEM_INSTRUCTIONS.replace("{source_date}", source_date)
     intent_note = _INTENT_CONTEXT.get(intent, "")
     context_text = "\n\n---\n\n".join(context_blocks)
 
     return (
-        f"{system_instructions}\n\n"
-        f"source_date argument: {source_date}\n\n"
+        f"{_RAG_SYSTEM_INSTRUCTIONS}\n\n"
         f"Intent note: {intent_note}\n\n"
         "SOURCE PASSAGES:\n"
         f"{context_text}\n\n"
@@ -106,20 +115,17 @@ def hybrid_answer_prompt(
     metrics_block: str,
     context_blocks: list[str],
     intent: str,
-    source_date: str,
 ) -> str:
     """Build a hybrid prompt that combines structured metric facts + RAG passages.
 
     The metrics block is injected as a high-confidence structured source so the
     LLM leads with facts rather than inferring from narrative text.
     """
-    system_instructions = _RAG_SYSTEM_INSTRUCTIONS.replace("{source_date}", source_date)
     intent_note = _INTENT_CONTEXT.get(intent, "")
     rag_context = "\n\n---\n\n".join(context_blocks)
 
     return (
-        f"{system_instructions}\n\n"
-        f"source_date argument: {source_date}\n\n"
+        f"{_HYBRID_SYSTEM_INSTRUCTIONS}\n\n"
         f"Intent note: {intent_note}\n\n"
         "STRUCTURED FUND METRICS (high confidence — use these for specific figures):\n"
         f"{metrics_block}\n\n"

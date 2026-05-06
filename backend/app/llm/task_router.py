@@ -154,6 +154,92 @@ _DIRECT_METRIC_KEYWORDS = frozenset(
     ]
 )
 
+_REVIEW_KEYWORDS = frozenset(
+    [
+        "review",
+        "reviews",
+        "playstore",
+        "play store",
+        "user feedback",
+        "complaint",
+        "complaints",
+        "rating",
+        "ratings",
+        "1 star",
+        "2 star",
+        "3 star",
+        "negative review",
+        "positive review",
+        "users say",
+        "users are saying",
+        "users mention",
+        "feedback",
+        "what users",
+        "user complaint",
+        "user experience",
+        "app review",
+    ]
+)
+
+_TREND_KEYWORDS = frozenset(
+    [
+        "trend",
+        "trends",
+        "trending",
+        "more than last",
+        "less than last",
+        "last month",
+        "last week",
+        "last quarter",
+        "compared to",
+        "over time",
+        "increase",
+        "increased",
+        "decrease",
+        "decreased",
+        "rising",
+        "falling",
+        "growing",
+        "volume",
+        "spike",
+        "surge",
+        "drop in",
+        "month on month",
+        "week on week",
+        "historical",
+    ]
+)
+
+_ISSUE_DIAGNOSIS_KEYWORDS = frozenset(
+    [
+        "why",
+        "root cause",
+        "reason",
+        "diagnosis",
+        "regression",
+        "bug",
+        "broken",
+        "crash",
+        "crashes",
+        "not working",
+        "issue",
+        "issues",
+        "problem",
+        "problems",
+        "what changed",
+        "changed in version",
+        "version",
+        "v5",
+        "v4",
+        "hotfix",
+        "after update",
+        "after upgrade",
+        "since update",
+        "degraded",
+        "degradation",
+    ]
+)
+
 
 def _classify_intent_inner(message: str) -> IntentLabel:
     """Core keyword-based classification logic (no side effects)."""
@@ -170,6 +256,9 @@ def _classify_intent_inner(message: str) -> IntentLabel:
     has_direct_metric = any(kw in lower for kw in _DIRECT_METRIC_KEYWORDS)
     has_explanatory = any(kw in lower for kw in _HYBRID_EXPLANATORY_KEYWORDS)
     has_metric = has_direct_metric or has_fee
+    has_review = any(kw in lower for kw in _REVIEW_KEYWORDS)
+    has_trend = any(kw in lower for kw in _TREND_KEYWORDS)
+    has_issue = any(kw in lower for kw in _ISSUE_DIAGNOSIS_KEYWORDS)
 
     # direct_metric_query: specific metric + fund context present, no explanatory intent.
     # Pure metric lookups ("What is the NAV of HDFC Flexi Cap?") go here — zero LLM call.
@@ -183,14 +272,26 @@ def _classify_intent_inner(message: str) -> IntentLabel:
     # hybrid_query: ONLY when a metric keyword AND explanatory/comparative intent
     # are both present.  "Tell me about HDFC Flexi Cap Fund" must NOT match here
     # (no metric keyword → has_metric=False → routes to mf_query via Groq instead).
-    if has_metric and has_explanatory:
+    if (has_metric or has_mf) and has_explanatory:
         return "hybrid_query"
+
+    # issue_diagnosis first — "why" is specific, must beat trend and review
+    if has_issue and not has_direct_metric and not has_booking:
+        return "issue_diagnosis_query"
+
+    # trend before review — trend is a modifier of review queries
+    if has_trend and not has_direct_metric and not has_booking:
+        return "trend_query"
+
+    # product review
+    if has_review and not has_direct_metric and not has_booking:
+        return "product_review_query"
 
     if has_fee:
         return "fee_query"
 
     if has_mf:
-        return "mf_query"
+        return "mutual_fund_info_query"
 
     # Booking combined with a question → hybrid route through MF.
     if has_booking and (has_mf or has_fee):
@@ -205,6 +306,8 @@ def classify_intent(message: str) -> IntentLabel:
     Returns a stable IntentLabel string (Rules D3: centralized enum).
     """
     intent = _classify_intent_inner(message)
+    lower = message.lower()
+    matched_kw = _matched_keyword(intent, lower)
     tier = assign_model_tier(intent)
     model_tier = "heavy" if tier == "heavy" else "standard"
     provider = "gemini" if tier == "heavy" else ("none" if tier == "light" else "groq")
@@ -215,15 +318,44 @@ def classify_intent(message: str) -> IntentLabel:
             "tier": tier,
             "model_tier": model_tier,
             "provider": provider,
+            "query_len": len(message),
+            "matched_keyword": matched_kw,
         },
     )
     return intent
 
 
+def _first_match(lower: str, keywords: frozenset[str]) -> str:
+    return next((kw for kw in keywords if kw in lower), "default")
+
+
+def _matched_keyword(intent: IntentLabel, lower: str) -> str:
+    if intent == "disallowed":
+        match = _DISALLOWED_PATTERNS.search(lower)
+        return match.group(1) if match else "default"
+    keyword_sets = {
+        "booking_intent": _BOOKING_KEYWORDS,
+        "direct_metric_query": _DIRECT_METRIC_KEYWORDS,
+        "hybrid_query": _HYBRID_EXPLANATORY_KEYWORDS,
+        "issue_diagnosis_query": _ISSUE_DIAGNOSIS_KEYWORDS,
+        "trend_query": _TREND_KEYWORDS,
+        "product_review_query": _REVIEW_KEYWORDS,
+        "fee_query": _FEE_KEYWORDS,
+        "mutual_fund_info_query": _MF_KEYWORDS,
+    }
+    return _first_match(lower, keyword_sets.get(intent, frozenset()))
+
+
 def assign_model_tier(intent: IntentLabel) -> Literal["light", "standard", "heavy"]:
     LIGHT = {"out_of_scope", "disallowed", "direct_metric_query"}
-    STANDARD = {"mf_query", "fee_query", "booking_intent"}
-    HEAVY = {"hybrid_query"}
+    STANDARD = {
+        "mutual_fund_info_query",
+        "fee_query",
+        "booking_intent",
+        "product_review_query",
+        "trend_query",
+    }
+    HEAVY = {"hybrid_query", "issue_diagnosis_query"}
     if intent in LIGHT:
         return "light"
     if intent in HEAVY:
@@ -239,8 +371,10 @@ DISALLOWED_RESPONSES: dict[str, str] = {
         "This is general information only, not personalised financial advice."
     ),
     "out_of_scope": (
-        "I can help with mutual fund information and fee explanations from Groww's product pages. "
-        "Try asking about a specific fund's expense ratio, exit load, or how a particular fund category works. "
+        "I can help with Groww product-operations topics: user reviews, "
+        "Play Store feedback, performance trends, booking an advisor, "
+        "or mutual fund fee and scheme information. "
+        "What would you like to look into? "
         "This is general information only, not personalised financial advice."
     ),
 }

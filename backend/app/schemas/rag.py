@@ -10,11 +10,14 @@ from pydantic import BaseModel, Field
 DocType = Literal["mutual_fund_page", "fee_explainer", "playstore_review"]
 
 IntentLabel = Literal[
-    "mf_query",
+    "mutual_fund_info_query",
     "fee_query",
     "hybrid_query",
     "direct_metric_query",
     "booking_intent",
+    "product_review_query",
+    "trend_query",
+    "issue_diagnosis_query",
     "out_of_scope",
     "disallowed",
 ]
