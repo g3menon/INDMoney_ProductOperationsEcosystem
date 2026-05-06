@@ -1,8 +1,8 @@
 {
   "version": "phase4-v1",
   "total_weight": 110.0,
-  "earned_weight": 110.0,
-  "score": 100.0,
+  "earned_weight": 95.0,
+  "score": 86.36,
   "checks": [
     {
       "id": "fixture_corpus_loads",
@@ -32,7 +32,7 @@
     {
       "id": "intent_classifier_routes",
       "weight": 15.0,
-      "passed": true
+      "passed": false
     },
     {
       "id": "disallowed_refused",
@@ -55,5 +55,5 @@
       "passed": true
     }
   ],
-  "generated_at": "2026-05-06T18:16:17.720343+00:00"
+  "generated_at": "2026-05-06T18:11:04.180047+00:00"
 }
