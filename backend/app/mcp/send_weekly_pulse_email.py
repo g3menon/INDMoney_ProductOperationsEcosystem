@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import base64
 import logging
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from email.message import EmailMessage
+from email.policy import SMTP
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -25,14 +25,22 @@ from app.repositories.token_repository import get_google_oauth_token
 logger = logging.getLogger(__name__)
 
 
-def _make_raw_message(*, to: str, sender: str, subject: str, plain: str, html: str) -> str:
-    msg = MIMEMultipart("alternative")
-    msg["to"] = to
-    msg["from"] = sender
-    msg["subject"] = subject
-    msg.attach(MIMEText(plain, "plain", "utf-8"))
-    msg.attach(MIMEText(html, "html", "utf-8"))
-    return base64.urlsafe_b64encode(msg.as_bytes()).decode()
+def _make_raw_message(*, to: str, sender: str, subject: str, html: str) -> str:
+    """Build RFC 5322 MIME and base64url-encode for ``messages.send``.
+
+    Gmail often displays only the plaintext child of ``multipart/alternative`` even
+    when a valid ``text/html`` part exists. Using a single ``text/html`` body is the
+    most reliable way to get styled pulse mail in Gmail and similar clients.
+
+    CRLF line endings via :class:`email.policy.SMTP`.
+    """
+
+    msg = EmailMessage(policy=SMTP)
+    msg["To"] = to
+    msg["From"] = sender
+    msg["Subject"] = subject
+    msg.set_content(html, subtype="html", charset="utf-8")
+    return base64.urlsafe_b64encode(msg.as_bytes()).decode("ascii")
 
 
 async def send_weekly_pulse_email(
@@ -48,7 +56,7 @@ async def send_weekly_pulse_email(
     settings = get_settings()
     sender_email = settings.gmail_sender_email
 
-    subject, plain, html = build_pulse_email_parts(pulse)
+    subject, _plain, html = build_pulse_email_parts(pulse)
     pulse_id = pulse.pulse_id if pulse else None
 
     if not sender_email:
@@ -60,7 +68,7 @@ async def send_weekly_pulse_email(
         await log_pulse_send(settings=settings, pulse_id=pulse_id, email=to_email, status="skipped", error="token_missing")
         return {"status": "skipped", "reason": "google_oauth_token not available"}
 
-    raw = _make_raw_message(to=to_email, sender=sender_email, subject=subject, plain=plain, html=html)
+    raw = _make_raw_message(to=to_email, sender=sender_email, subject=subject, html=html)
 
     # Idempotency key: pulse_id + email (best-effort; DB enforces uniqueness if configured)
     idem = f"weekly_pulse:{pulse_id or 'none'}:{to_email.lower()}"

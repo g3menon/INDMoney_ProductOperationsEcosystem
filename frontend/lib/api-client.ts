@@ -13,10 +13,12 @@ function getCorrelationId(): string {
 }
 
 export function getApiBaseUrl(): string {
-  const base = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "");
+  let base = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
   if (!base) {
     throw new Error("NEXT_PUBLIC_API_BASE_URL is not configured.");
   }
+  // Paths already start with `/api/v1/...`; strip duplicate prefix if env includes it.
+  base = base.replace(/\/api\/v1$/i, "");
   return base;
 }
 

@@ -197,7 +197,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
     c = _COLORS
     if pulse is None:
         return (
-            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{c["bg"]}" '
             f'style="margin:0;padding:24px 12px;background:{c["bg"]};font-family:Inter,Segoe UI,sans-serif;">'
             f'<tr><td align="center">'
             f'<table role="presentation" width="640" cellpadding="0" cellspacing="0" '
@@ -451,7 +451,7 @@ def build_pulse_html(pulse: WeeklyPulse | None) -> str:
 
     return "".join(
         [
-            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+            f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="{c["bg"]}" '
             f'style="margin:0;padding:20px 10px;background:{c["bg"]};font-family:Inter,Segoe UI,'
             f'system-ui,sans-serif;color:{c["text"]};">',
             '<tr><td align="center">',
@@ -585,8 +585,11 @@ def build_pulse_email_parts(pulse: WeeklyPulse | None) -> tuple[str, str, str]:
     subject, plain = build_pulse_plain(pulse)
     html_doc = (
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/>'
-        '<meta name="viewport" content="width=device-width,initial-scale=1"/></head>'
-        f"<body style=\"margin:0;background:{_COLORS['bg']};\">"
+        '<meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>'
+        '<meta name="viewport" content="width=device-width,initial-scale=1"/>'
+        '<title>Weekly Pulse</title></head>'
+        f"<body style=\"margin:0;padding:0;background:{_COLORS['bg']};"
+        f"font-family:Inter,Plus Jakarta Sans,Segoe UI,system-ui,sans-serif;\">"
         f"{build_pulse_html(pulse)}"
         "</body></html>"
     )
