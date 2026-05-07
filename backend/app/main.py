@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -14,6 +16,42 @@ from app.core.logging import configure_logging, get_logger
 from app.integrations.supabase.client import check_supabase_connectivity
 
 logger = get_logger(__name__)
+
+
+def _materialise_gcp_credentials() -> None:
+    """Write GOOGLE_APPLICATION_CREDENTIALS_JSON to a temp file on cloud platforms.
+
+    Railway (and other PaaS providers) cannot mount files, so the service-account
+    JSON must be stored as a single env var. If that var is present and
+    GOOGLE_APPLICATION_CREDENTIALS is not already pointing at a file, this
+    function writes the JSON to a process-scoped temp file and sets the standard
+    ADC env var so the google-cloud-* SDKs pick it up automatically.
+    """
+    creds_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON", "").strip()
+    if not creds_json:
+        return
+    if os.getenv("GOOGLE_APPLICATION_CREDENTIALS"):
+        return
+    try:
+        parsed = json.loads(creds_json)
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, prefix="gcp_creds_"
+        )
+        json.dump(parsed, tmp)
+        tmp.close()
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp.name
+        logger.info(
+            "gcp_credentials_materialised_from_env",
+            extra={"correlation_id": "-", "path": tmp.name},
+        )
+    except Exception as exc:
+        logger.warning(
+            "gcp_credentials_materialise_failed",
+            extra={"correlation_id": "-", "error": str(exc)[:120]},
+        )
+
+
+_materialise_gcp_credentials()
 
 _SKIP_SUPABASE_STARTUP = os.getenv("PHASE1_SKIP_SUPABASE_STARTUP_CHECK", "").lower() in (
     "1",

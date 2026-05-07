@@ -24,3 +24,9 @@ lxml==5.3.0
 numpy==1.26.4
 slowapi>=0.1.9
 tzdata>=2024.1
+# Phase 8: Voice layer (STT / TTS via Google Cloud)
+google-cloud-speech>=2.30,<3
+google-cloud-texttospeech>=2.30,<3
+grpcio>=1.62,<2
+protobuf>=5.26,<6
+python-multipart>=0.0.9

@@ -22,7 +22,7 @@ api_router.include_router(pulse.router, tags=["pulse"])
 api_router.include_router(chat.router, tags=["chat"])
 api_router.include_router(evals.router, tags=["evals"])
 # Booking/advisor workflows are live; auth + internal scheduler are Phase 7.
-# Voice remains a Phase 8 stub (501 until implemented).
+# Voice is live (Phase 8): POST /voice/message.
 api_router.include_router(advisor.router, tags=["advisor"])
 api_router.include_router(auth.router, tags=["auth"])
 api_router.include_router(internal.router, tags=["internal"])
