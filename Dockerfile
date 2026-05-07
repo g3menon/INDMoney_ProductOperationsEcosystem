@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS backend
 
 # Install Chromium system dependencies for Playwright
 RUN apt-get update && apt-get install -y \

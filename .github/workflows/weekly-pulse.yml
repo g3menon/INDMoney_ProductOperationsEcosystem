@@ -1,0 +1,63 @@
+name: "Weekly Pulse Scheduler"
+
+on:
+  schedule:
+    # Monday 10:00 IST = Monday 04:30 UTC
+    - cron: "30 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Pass dry_run=true to the pulse endpoint (skips email send)"
+        required: false
+        default: "false"
+
+# Prevent overlapping runs — if a previous Monday job is still running when a
+# new trigger fires, wait rather than cancel (pulse is idempotent but slow).
+concurrency:
+  group: weekly-pulse
+  cancel-in-progress: false
+
+jobs:
+  trigger-pulse:
+    name: Trigger Weekly Pulse
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate required secrets are present
+        run: |
+          if [ -z "${{ secrets.RAILWAY_API_URL }}" ]; then
+            echo "ERROR: RAILWAY_API_URL secret is not set. Add it in Settings → Secrets → Actions."
+            exit 1
+          fi
+          if [ -z "${{ secrets.INTERNAL_SCHEDULER_SECRET }}" ]; then
+            echo "ERROR: INTERNAL_SCHEDULER_SECRET secret is not set. Add it in Settings → Secrets → Actions."
+            exit 1
+          fi
+
+      - name: POST /api/v1/internal/scheduler/pulse
+        id: pulse
+        run: |
+          DRY_RUN="${{ github.event.inputs.dry_run || 'false' }}"
+          ENDPOINT="${{ secrets.RAILWAY_API_URL }}/api/v1/internal/scheduler/pulse"
+
+          echo "Triggering pulse at: $ENDPOINT (dry_run=$DRY_RUN)"
+
+          HTTP_STATUS=$(curl -sS \
+            --max-time 120 \
+            -o /tmp/pulse_response.json \
+            -w "%{http_code}" \
+            -X POST "$ENDPOINT" \
+            -H "X-Scheduler-Secret: ${{ secrets.INTERNAL_SCHEDULER_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"dry_run\": $DRY_RUN}")
+
+          echo "HTTP status: $HTTP_STATUS"
+          echo "Response body:"
+          cat /tmp/pulse_response.json || true
+
+          if [ "$HTTP_STATUS" -lt 200 ] || [ "$HTTP_STATUS" -ge 300 ]; then
+            echo "ERROR: Pulse trigger failed with HTTP $HTTP_STATUS"
+            exit 1
+          fi
+
+          echo "Weekly pulse triggered successfully (HTTP $HTTP_STATUS)."
