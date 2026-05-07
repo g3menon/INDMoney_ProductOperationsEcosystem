@@ -521,15 +521,15 @@ Per Rules R10 and Architecture.md §API keys, quotas, and fallbacks: `GEMINI_API
 ### 13.1 Today
 
 - CLI: `cd backend; python -m app.evals.run_all --phase {1|2|3}`.
-- Entrypoint: `backend/app/evals/run_all.py`. Sets stable env defaults (`APP_ENV=eval`, etc.), patches Supabase connectivity, and persists results to `Deliverables/Evals/phase-<n>/eval_<ts>_<version>.json` plus `latest.json`.
+- Entrypoint: `backend/app/evals/run_all.py`. Sets stable env defaults (`APP_ENV=eval`, etc.), patches Supabase connectivity, and persists results to `Docs/Evals/phase-<n>/eval_<ts>_<version>.json` plus `latest.json`.
 - Threshold: **score ≥ 85%** to pass.
 - API: `POST /api/v1/evals/run { suite: "phase1"|"phase2"|"phase3" }` exposes the same harness.
 
 ### 13.2 Per-phase artifacts
 
-- `Deliverables/Evals/phase-1/README.md` and `phase-2/README.md` document automated runs.
-- `Deliverables/Evals/phase-3/README.md` documents the automated chat checks.
-- `Deliverables/Evals/phase-4/README.md` … `phase-7/README.md` document **manual acceptance gates** until automated harnesses are added.
+- `Docs/Evals/phase-1/README.md` and `phase-2/README.md` document automated runs.
+- `Docs/Evals/phase-3/README.md` documents the automated chat checks.
+- `Docs/Evals/phase-4/README.md` … `phase-7/README.md` document **manual acceptance gates** until automated harnesses are added.
 
 ### 13.3 Future automation
 
@@ -575,7 +575,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
   - Local startup sequence; smoke `Invoke-RestMethod http://127.0.0.1:8000/api/v1/health` and `…/dashboard/badges`.
   - Frontend cannot reach backend / Backend fails to boot — incident playbooks.
 - **Acceptance / DoD:**
-  - Run `cd backend; python -m app.evals.run_all --phase 1` → score ≥ 85%; artifact saved under `Deliverables/Evals/phase-1/`.
+  - Run `cd backend; python -m app.evals.run_all --phase 1` → score ≥ 85%; artifact saved under `Docs/Evals/phase-1/`.
   - Frontend boots, backend boots, health endpoint works, badges route works, Supabase connection foundation validated, `.env.example` aligned with implementation (Rules Phase 1 DoD).
 
 ### 14.2 Phase 2 — Weekly Pulse backend + Product tab
@@ -606,7 +606,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
   - *Groww Play Store reviews (Playwright) and RAG corpus* sequence (raw → normalize → optional chunk → pulse).
   - *Manual pulse generation* trigger; *LLM quota or key exhaustion* incident playbook.
 - **Acceptance / DoD:**
-  - Run `python -m app.evals.run_all --phase 2` → ≥ 85%; artifact under `Deliverables/Evals/phase-2/`.
+  - Run `python -m app.evals.run_all --phase 2` → ≥ 85%; artifact under `Docs/Evals/phase-2/`.
   - One run demonstrates the canonical pipeline order in Resources.md (or documented degraded mode); subscribe/unsubscribe flow works; Product tab renders current + history.
 
 ### 14.3 Phase 3 — Customer text chat foundation
@@ -637,7 +637,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
   - End-to-end test (text-only) → Step 3 (Customer text chat).
   - Frontend cannot reach backend → incident playbook.
 - **Acceptance / DoD:**
-  - Run `python -m app.evals.run_all --phase 3` → ≥ 85%; artifact under `Deliverables/Evals/phase-3/`.
+  - Run `python -m app.evals.run_all --phase 3` → ≥ 85%; artifact under `Docs/Evals/phase-3/`.
   - Users can submit text + prompt chips; sessions and messages persist; backend routing skeleton present (Rules Phase 3 DoD).
 
 ### 14.4 Phase 4 — RAG and grounded hybrid Q&A
@@ -665,7 +665,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
 - **Operational checks** ([Docs/Runbook.md](Runbook.md)):
   - *Groww Play Store reviews (Playwright) and RAG corpus* → step 3 (chunking + index rebuild for MF/fee sources); spot-check retrieved chunk shows no raw HTML and citation metadata is present.
 - **Acceptance / DoD (manual gate today):**
-  - Record happy paths + at least one weak-retrieval fallback under `Deliverables/Evals/phase-4/`.
+  - Record happy paths + at least one weak-retrieval fallback under `Docs/Evals/phase-4/`.
   - Hybrid FAQ + fee retrieval works; weak retrieval triggers safe fallback; citations preserved (Rules Phase 4 DoD).
 
 ### 14.5 Phase 5 — Booking and customer workflow state
@@ -694,7 +694,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
 - **Operational checks** ([Docs/Runbook.md](Runbook.md)):
   - End-to-end test (text-only) → Step 4 (Booking).
 - **Acceptance / DoD (manual gate today):**
-  - Booking can be initiated, persisted, displayed, cancelled; invalid transitions handled gracefully (Rules Phase 5 DoD); record under `Deliverables/Evals/phase-5/`.
+  - Booking can be initiated, persisted, displayed, cancelled; invalid transitions handled gracefully (Rules Phase 5 DoD); record under `Docs/Evals/phase-5/`.
 
 ### 14.6 Phase 6 — Advisor operations and HITL approval
 
@@ -722,7 +722,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
 - **Operational checks** ([Docs/Runbook.md](Runbook.md)):
   - End-to-end test (text-only) → Step 5 (Advisor: pending/upcoming + approve/reject).
 - **Acceptance / DoD (manual gate today):**
-  - Pending approvals visible; approve/reject work; shared state updates consistently; badge counts reflect current state (Rules Phase 6 DoD); record under `Deliverables/Evals/phase-6/`.
+  - Pending approvals visible; approve/reject work; shared state updates consistently; badge counts reflect current state (Rules Phase 6 DoD); record under `Docs/Evals/phase-6/`.
 
 ### 14.7 Phase 7 — External integrations + scheduler (still locally runnable in dev mode)
 
@@ -785,7 +785,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
   - Phase 8 is added only after that.
 - **Acceptance / DoD:**
   - Voice input/output works; voice path reuses text runtime; parity scenarios pass; failure handling user-safe (Rules Phase 8 DoD).
-  - Record artifacts under `Deliverables/Evals/phase-8/`.
+  - Record artifacts under `Docs/Evals/phase-8/`.
 
 ### 14.9 Phase 9 — Deployment (NEW)
 
@@ -837,7 +837,7 @@ Each phase below uses the same fixed template. Cross-references point to single 
   - Deployed environment passes [Docs/Runbook.md](Runbook.md) *End-to-end test (text-only, before voice)* with no localhost dependencies.
   - At least one production incident playbook (Backend boot OR Supabase failure) verified end-to-end and recorded.
   - Rollback rehearsed once for both frontend and backend (or documented as deferred with explicit acceptance by the maintainer).
-  - Record artifacts (URLs, screenshots, logs) under `Deliverables/Evals/phase-9/` (folder to be added).
+  - Record artifacts (URLs, screenshots, logs) under `Docs/Evals/phase-9/` (automated artifact gate + deployed-environment evidence as applicable).
 
 ---
 

@@ -11,7 +11,7 @@ Run command:
   python -m app.evals.run_all --phase 5
 
 Suite: backend/app/evals/phase5_checks.py
-Artifact: Deliverables/Evals/phase-5/latest.json
+Artifact: Docs/Evals/phase-5/latest.json
 
 Checks and weights:
   openapi_booking_paths       20 pts — POST /create, GET /{id}, POST /cancel in OpenAPI spec

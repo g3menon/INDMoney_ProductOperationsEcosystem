@@ -1,8 +1,8 @@
 This folder holds **manual and automated** eval artifacts by phase (see `Docs/Rules.md` EVAL* and `Docs/Runbook.md` Recording).
 
 - `phase-1/` … `phase-9/`: automated JSON artifacts + `latest.json` via `backend/app/evals/run_all.py`
-- Phases **6–9** automated suites are **structural / smoke** checks (OpenAPI, advisor flow, integration imports, voice routes, deployment files); they **replace manual acceptance in Evals.md** when run — production smoke and live OAuth remain separate.
-- **Production URLs:** see the repo root **`Evals.md`** header (Vercel + Railway + OAuth path) and **`Docs/DeploymentGuide.md`** (*Production URLs*).
+- Phases **6–9** automated suites are **structural / smoke** checks (OpenAPI, advisor flow, integration imports, voice routes, deployment files); when run, they **replace manual acceptance** referenced in [`Evals.md`](../Evals.md) for reporting.
+- **Production URLs:** [`Evals.md`](../Evals.md) (summary report) and [`DeploymentGuide.md`](../DeploymentGuide.md) (*Production URLs*).
 
 For local runs:
 

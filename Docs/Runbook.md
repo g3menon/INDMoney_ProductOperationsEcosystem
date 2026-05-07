@@ -229,7 +229,7 @@ Use this checklist to validate **the whole implementation through Phase 7** with
 
 **Recording**
 
-- Capture results under `Deliverables/Evals/` for the highest phase covered (per architecture quality gate).
+- Capture results under `Docs/Evals/` for the highest phase covered (per architecture quality gate).
 
 ## Main incident checks
 

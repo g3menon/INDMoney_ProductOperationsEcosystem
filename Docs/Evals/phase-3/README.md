@@ -2,7 +2,7 @@ Phase 3 eval artifacts — Customer text chat foundation
 
 Automated (available in this repo)
 - Run: `cd backend; python -m app.evals.run_all --phase 3`
-- Saves: `Deliverables/Evals/phase-3/eval_<timestamp>_phase3-v1.json` and `latest.json`
+- Saves: `Docs/Evals/phase-3/eval_<timestamp>_phase3-v1.json` and `latest.json`
 
 What the automated harness checks
 - OpenAPI includes required chat endpoints (`/api/v1/chat/message`, `/api/v1/chat/prompts`, `/api/v1/chat/history/{session_id}`)

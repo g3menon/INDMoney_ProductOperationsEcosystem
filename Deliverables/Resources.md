@@ -55,7 +55,7 @@ Canonical manifest: [`scripts/sources_manifest.json`](../scripts/sources_manifes
 
 ### Optional manifest extension (documented in eval notes)
 
-Used only as an example of adding a fund via `scripts/sources_manifest.json` without code changes (`Deliverables/Evals/phase-4/ACCEPTANCE_NOTES.md`):
+Used only as an example of adding a fund via `scripts/sources_manifest.json` without code changes (`Docs/Evals/phase-4/ACCEPTANCE_NOTES.md`):
 
 | Scheme                         | URL                                                                                                                                                              |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -10,9 +10,9 @@
 
 **Google OAuth redirect URI (must match GCP + `GOOGLE_REDIRECT_URI`):** `https://loving-art-production-d433.up.railway.app/api/v1/auth/google/callback` — not `.../api/v1/auth/callback` (see `backend/app/api/v1/auth.py`).
 
-**Acceptance policy:** Phases **6–9** manual acceptance notes are **superseded for this report** by the automated suites in [`phase6_checks.py`](backend/app/evals/phase6_checks.py)–[`phase9_checks.py`](backend/app/evals/phase9_checks.py). Those suites validate **API wiring, imports, voice surface, and deployment artifacts** — not live production smoke, OAuth consent in prod, or STT/TTS quality ([Docs/Low Level Architecture.md](Docs/Low%20Level%20Architecture.md) §14.9 operational checklist remains recommended).
+**Acceptance policy:** Phases **6–9** manual acceptance notes are **superseded for this report** by the automated suites in [`phase6_checks.py`](../backend/app/evals/phase6_checks.py)–[`phase9_checks.py`](../backend/app/evals/phase9_checks.py). Those suites validate **API wiring, imports, voice surface, and deployment artifacts** — not live production smoke, OAuth consent in prod, or STT/TTS quality ([Low Level Architecture.md §14.9](./Low%20Level%20Architecture.md) operational checklist remains recommended).
 
-**Automated suite:** [`run_all.py`](backend/app/evals/run_all.py) supports **`--phase 1` … `--phase 9`** and **`--all`** (runs 1→9).
+**Automated suite:** [`run_all.py`](../backend/app/evals/run_all.py) supports **`--phase 1` … `--phase 9`** and **`--all`** (runs 1→9).
 
 ### Automated eval run (latest CLI execution)
 
@@ -25,15 +25,15 @@ py -3.11 -m app.evals.run_all --all
 
 | Phase | Automated | Score | Latest artifact |
 |---|---|---|---|
-| 1 | Yes | **100.0%** | `Deliverables/Evals/phase-1/eval_20260507T141913Z_phase1-v1.json` |
-| 2 | Yes | **100.0%** | `Deliverables/Evals/phase-2/eval_20260507T141941Z_phase2-v1.json` |
-| 3 | Yes | **100.0%** | `Deliverables/Evals/phase-3/eval_20260507T141941Z_phase3-v1.json` |
-| 4 | Yes | **100.0%** | `Deliverables/Evals/phase-4/eval_20260507T141942Z_phase4-v1.json` |
-| 5 | Yes | **100.0%** | `Deliverables/Evals/phase-5/eval_20260507T141942Z_phase5-v1.json` |
-| 6 | Yes (structural + advisor smoke) | **100.0%** | `Deliverables/Evals/phase-6/eval_20260507T141942Z_phase6-v1.json` |
-| 7 | Yes (scheduler route + integration imports) | **100.0%** | `Deliverables/Evals/phase-7/eval_20260507T141942Z_phase7-v1.json` |
-| 8 | Yes (OpenAPI + voice root + safe POST) | **100.0%** | `Deliverables/Evals/phase-8/eval_20260507T141942Z_phase8-v1.json` |
-| 9 | Yes (deployment files present) | **100.0%** | `Deliverables/Evals/phase-9/eval_20260507T141942Z_phase9-v1.json` |
+| 1 | Yes | **100.0%** | `Docs/Evals/phase-1/eval_20260507T141913Z_phase1-v1.json` |
+| 2 | Yes | **100.0%** | `Docs/Evals/phase-2/eval_20260507T141941Z_phase2-v1.json` |
+| 3 | Yes | **100.0%** | `Docs/Evals/phase-3/eval_20260507T141941Z_phase3-v1.json` |
+| 4 | Yes | **100.0%** | `Docs/Evals/phase-4/eval_20260507T141942Z_phase4-v1.json` |
+| 5 | Yes | **100.0%** | `Docs/Evals/phase-5/eval_20260507T141942Z_phase5-v1.json` |
+| 6 | Yes (structural + advisor smoke) | **100.0%** | `Docs/Evals/phase-6/eval_20260507T141942Z_phase6-v1.json` |
+| 7 | Yes (scheduler route + integration imports) | **100.0%** | `Docs/Evals/phase-7/eval_20260507T141942Z_phase7-v1.json` |
+| 8 | Yes (OpenAPI + voice root + safe POST) | **100.0%** | `Docs/Evals/phase-8/eval_20260507T141942Z_phase8-v1.json` |
+| 9 | Yes (deployment files present) | **100.0%** | `Docs/Evals/phase-9/eval_20260507T141942Z_phase9-v1.json` |
 
 **Totals:** **910 / 910** weighted points earned (**100%** on each phase); threshold **≥ 85%** per phase.
 
@@ -56,11 +56,11 @@ py -3.11 -m app.evals.run_all --all
 
 ## 1. Automated Eval Scores
 
-Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the **`2026-05-07T14:19:13`–`14:19:42` UTC** `--all` run (`generated_at` in each file).
+Detailed breakdown matches `Docs/Evals/phase-<n>/latest.json` after the **`2026-05-07T14:19:13`–`14:19:42` UTC** `--all` run (`generated_at` in each file).
 
 ### Phase 1 — Infrastructure, Health, and Connectivity
 
-`Deliverables/Evals/phase-1/latest.json` · `generated_at`: `2026-05-07T14:19:13.706536+00:00`
+`Docs/Evals/phase-1/latest.json` · `generated_at`: `2026-05-07T14:19:13.706536+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -79,7 +79,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 2 — Weekly Pulse Ingestion, Normalization, and Pulse APIs
 
-`Deliverables/Evals/phase-2/latest.json` · `generated_at`: `2026-05-07T14:19:41.958619+00:00`
+`Docs/Evals/phase-2/latest.json` · `generated_at`: `2026-05-07T14:19:41.958619+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -94,7 +94,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 3 — Customer Text Chat Foundation
 
-`Deliverables/Evals/phase-3/latest.json` · `generated_at`: `2026-05-07T14:19:41.974582+00:00`
+`Docs/Evals/phase-3/latest.json` · `generated_at`: `2026-05-07T14:19:41.974582+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -107,7 +107,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 4 — RAG and Grounded Hybrid Q&A
 
-`Deliverables/Evals/phase-4/latest.json` · `generated_at`: `2026-05-07T14:19:42.128172+00:00`
+`Docs/Evals/phase-4/latest.json` · `generated_at`: `2026-05-07T14:19:42.128172+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -127,7 +127,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 5 — Booking and Customer Workflow State
 
-`Deliverables/Evals/phase-5/latest.json` · `generated_at`: `2026-05-07T14:19:42.165413+00:00`
+`Docs/Evals/phase-5/latest.json` · `generated_at`: `2026-05-07T14:19:42.165413+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -143,7 +143,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 6 — Advisor HITL Approval (automated structural gate)
 
-`Deliverables/Evals/phase-6/latest.json` · `generated_at`: `2026-05-07T14:19:42.852091+00:00`
+`Docs/Evals/phase-6/latest.json` · `generated_at`: `2026-05-07T14:19:42.852091+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -158,7 +158,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 7 — External integrations surface (automated offline gate)
 
-`Deliverables/Evals/phase-7/latest.json` · `generated_at`: `2026-05-07T14:19:42.870393+00:00`
+`Docs/Evals/phase-7/latest.json` · `generated_at`: `2026-05-07T14:19:42.870393+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -174,7 +174,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 8 — Voice adapter surface (automated)
 
-`Deliverables/Evals/phase-8/latest.json` · `generated_at`: `2026-05-07T14:19:42.919038+00:00`
+`Docs/Evals/phase-8/latest.json` · `generated_at`: `2026-05-07T14:19:42.919038+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -188,7 +188,7 @@ Detailed breakdown matches `Deliverables/Evals/phase-<n>/latest.json` after the 
 
 ### Phase 9 — Deployment artifacts (automated repo gate)
 
-`Deliverables/Evals/phase-9/latest.json` · `generated_at`: `2026-05-07T14:19:42.926455+00:00`
+`Docs/Evals/phase-9/latest.json` · `generated_at`: `2026-05-07T14:19:42.926455+00:00`
 
 | Check | Weight | Result |
 |---|---|---|
@@ -210,7 +210,7 @@ Five complex questions spanning M1 mutual fund facts and M2 fee scenarios. Each 
 
 Corpus funds: Motilal Oswal Midcap, Motilal Oswal Flexi Cap, Motilal Nifty Midcap 150 Index, HDFC Large and Mid Cap, HDFC Flexi Cap, HDFC Large Cap. Sources: official Groww fund pages.
 
-**Methodology:** Faithfulness / relevance scores in §2–§4 are **manual acceptance judgments** against `Docs/ProblemStatement.md` §3 and `Deliverables/Evals/phase-4/ACCEPTANCE_NOTES.md`. The automated harness does **not** LLM-grade these five queries; Phase 4 plumbing (including `disallowed_refused`) passed on **`2026-05-07`** (`--all` run in §1).
+**Methodology:** Faithfulness / relevance scores in §2–§4 are **manual acceptance judgments** against `Docs/ProblemStatement.md` §3 and `Docs/Evals/phase-4/ACCEPTANCE_NOTES.md`. The automated harness does **not** LLM-grade these five queries; Phase 4 plumbing (including `disallowed_refused`) passed on **`2026-05-07`** (`--all` run in §1).
 
 ---
 
@@ -471,7 +471,7 @@ Canonical **production frontend:** [https://groww-product-ops-ecosystem.vercel.a
 |---|---|---|
 | Frontend HTTPS / app shell | **PASS** | Verified **2026-05-07**: root URL serves the Groww Ops AI experience (hero, suggested prompts, MF overview cards, chat/voice affordances). |
 | Backend `GET /api/v1/health` | **PASS** | Verified **2026-05-07** against `https://loving-art-production-d433.up.railway.app/api/v1/health` (`success: true`, `status: ok`, Supabase reachable). |
-| Env alignment | — | Vercel `NEXT_PUBLIC_API_BASE_URL`, Railway `FRONTEND_BASE_URL`, GitHub `RAILWAY_API_URL`, and GCP **`/api/v1/auth/google/callback`** must all use the origins above (see [Docs/DeploymentGuide.md](Docs/DeploymentGuide.md)). |
+| Env alignment | — | Vercel `NEXT_PUBLIC_API_BASE_URL`, Railway `FRONTEND_BASE_URL`, GitHub `RAILWAY_API_URL`, and GCP **`/api/v1/auth/google/callback`** must all use the origins above (see [DeploymentGuide.md](./DeploymentGuide.md)). |
 | OAuth / Google integrations / STT–TTS | — | Still **manual** per §14.9 and §6 below; not covered by this report’s automated suites. |
 
 ---

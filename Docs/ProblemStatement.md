@@ -89,7 +89,7 @@ Run and document **at least three** evaluation types on the final system.
   - A review CSV processed into a pulse.
   - A voice call booked using that pulse context.
   - The Smart-Sync FAQ answering a complex fee + fact question.
-- **Evals report:** Markdown or table with golden dataset, adversarial tests, and scores.
+- **Evals report:** See [`Docs/Evals.md`](./Evals.md) (markdown narrative with golden dataset, adversarial tests, and scores).
 - **Source manifest:** Combined list of all official URLs used across the bootcamp (see `Deliverables/Resources.md` — **35** HTTPS rows including production Vercel/Railway/OAuth URLs).
 
 ---

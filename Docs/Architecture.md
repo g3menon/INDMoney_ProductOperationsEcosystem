@@ -1230,8 +1230,9 @@ project-root/
 ├── .github/
 │   └── workflows/                           # CI + weekly-pulse cron when Phase 7 is on
 │
-├── Docs/                                    # canonical project docs (architecture, rules, runbook)
-├── Deliverables/                            # capstone deliverables and Evals/ artifacts
+├── Docs/                                    # architecture, rules, runbook; **Docs/Evals/** (eval JSON etc.); **Docs/Evals.md** (narrative report)
+│
+├── Deliverables/                            # e.g. `Resources.md` (canonical URLs manifest)
 │
 ├── Dockerfile                               # backend container image (used by Railway)
 ├── railway.toml                             # Railway deploy config (build + startCommand)
@@ -1318,25 +1319,26 @@ After each phase (Phase 1 through Phase 8), the team must complete this gate **b
 2. Fix any runtime, integration, or validation errors found.
 3. Run phase-specific evals for the completed phase.
   - **Automated evals** are available today for **phases 1, 2, and 3** via `cd backend; python -m app.evals.run_all --phase <n>` (see `backend/app/evals/run_all.py`).
-  - **Phases 4–7** use the **manual acceptance gate** in `Docs/Runbook.md` → *End-to-end test (text-only, before voice / Phase 8)* and the per-phase READMEs under `Deliverables/Evals/phase-<n>/` until automated harnesses are added.
-4. Record the phase score (or, for manual gates, the per-phase artifact in `Deliverables/Evals/phase-<n>/`).
+  - **Phases 4–7** use the **manual acceptance gate** in `Docs/Runbook.md` → *End-to-end test (text-only, before voice / Phase 8)* and the per-phase READMEs under `Docs/Evals/phase-<n>/` until automated harnesses are added.
+4. Record the phase score (or, for manual gates, the per-phase artifact in `Docs/Evals/phase-<n>/`).
 5. If the automated score is **below 85%**, make changes and re-run tests/evals until score is **at least 85%**. For manual gates, the phase is closed only when its Definition of Done in `Docs/Rules.md` is satisfied and recorded.
 6. Only then proceed to the next phase.
 
 **Artifact requirement:** every phase must produce an eval artifact under:
 
-- `Deliverables/Evals/`
+- `Docs/Evals/`
 
 Use one subfolder per phase (recommended):
 
-- `Deliverables/Evals/phase-1/`
-- `Deliverables/Evals/phase-2/`
-- `Deliverables/Evals/phase-3/`
-- `Deliverables/Evals/phase-4/`
-- `Deliverables/Evals/phase-5/`
-- `Deliverables/Evals/phase-6/`
-- `Deliverables/Evals/phase-7/`
-- `Deliverables/Evals/phase-8/`
+- `Docs/Evals/phase-1/`
+- `Docs/Evals/phase-2/`
+- `Docs/Evals/phase-3/`
+- `Docs/Evals/phase-4/`
+- `Docs/Evals/phase-5/`
+- `Docs/Evals/phase-6/`
+- `Docs/Evals/phase-7/`
+- `Docs/Evals/phase-8/`
+- `Docs/Evals/phase-9/`
 
 ### Phase 1
 
@@ -1426,7 +1428,7 @@ Phases **1 through 7** are the **complete functional product** for validation: d
 - after each phase, run tests, fix errors and run evals before phase transition
 - fix all discovered errors before phase transition
 - enforce minimum eval score of 85% before moving to next phase
-- store per-phase eval outputs under `Deliverables/Evals/phase-`*
+- store per-phase eval outputs under `Docs/Evals/phase-<n>/`
 - do not create a different repo structure per phase
 - do not split into separate repos
 - do not move business logic into frontend

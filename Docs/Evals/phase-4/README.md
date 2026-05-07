@@ -11,7 +11,7 @@ cd backend
 python -m app.evals.run_all --phase 4
 ```
 
-Artifact saved to `Deliverables/Evals/phase-4/eval_<ts>_phase4-v1.json` and `latest.json`.
+Artifact saved to `Docs/Evals/phase-4/eval_<ts>_phase4-v1.json` and `latest.json`.
 Threshold: **≥ 85%**.
 
 ### Automated check coverage

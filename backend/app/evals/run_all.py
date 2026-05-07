@@ -26,7 +26,7 @@ def _ensure_eval_env() -> None:
 
 def _persist_deliverable(phase: int, report) -> Path:
     repo_root = Path(__file__).resolve().parents[3]
-    out_dir = repo_root / "Deliverables" / "Evals" / f"phase-{phase}"
+    out_dir = repo_root / "Docs" / "Evals" / f"phase-{phase}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

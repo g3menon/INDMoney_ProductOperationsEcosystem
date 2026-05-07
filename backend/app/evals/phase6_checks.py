@@ -1,6 +1,6 @@
 """Phase 6 automated evals — Advisor HITL (structural + API smoke).
 
-Supersedes manual acceptance for reporting when used together with Evals.md override notes.
+Supersedes manual acceptance for reporting when used together with `Docs/Evals.md` override notes.
 """
 
 from __future__ import annotations

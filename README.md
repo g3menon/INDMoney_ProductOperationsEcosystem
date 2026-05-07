@@ -131,7 +131,7 @@ The shell loads **health** and **badges** on startup, then you switch tabs at th
 | [`Docs/DeploymentGuide.md`](Docs/DeploymentGuide.md) | Need **Supabase → Railway → Vercel → secrets** |
 | [`Docs/Runbook.md`](Docs/Runbook.md) | Need **smoke tests, incidents, recovery** |
 | [`Deliverables/Resources.md`](Deliverables/Resources.md) | Need **canonical external URLs** |
-| [`Evals.md`](Evals.md) | Need **eval scores and acceptance narrative** |
+| [`Docs/Evals.md`](Docs/Evals.md) | Need **eval scores and acceptance narrative** |
 
 **Automated quality gates:** from `backend/`, run `py -3.11 -m app.evals.run_all --all` (phases **1–9**). Threshold **≥ 85%** per phase. Automation **does not** replace a full **Runbook** end-to-end pass for UX and live Google behavior.
 
@@ -230,7 +230,7 @@ cd backend
 .\.venv\Scripts\python.exe -m app.evals.run_all --all
 ```
 
-Human-readable report: [`Evals.md`](Evals.md).
+Human-readable report: [`Docs/Evals.md`](Docs/Evals.md).
 
 ---
 

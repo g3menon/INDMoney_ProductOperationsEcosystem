@@ -30,7 +30,7 @@ cd backend
 python -m app.evals.run_all --phase 4
 ```
 
-Threshold: **≥ 85%**. Artifact saved to `Deliverables/Evals/phase-4/`.
+Threshold: **≥ 85%**. Artifact saved to `Docs/Evals/phase-4/`.
 
 ---
 
